@@ -265,3 +265,29 @@ MIT
 ---
 
 **让你的 AI 助手做 24 小时牛马，只要 token 够用！** 🚀
+
+## 依赖
+
+### 系统依赖
+
+- **tmux** - 终端复用器，用于管理 AI session
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+
+# CentOS/RHEL
+sudo yum install tmux
+```
+
+### Node.js 依赖
+
+- Node.js >= 18
+- Codex CLI 或 Claude Code CLI
+
+### Python 依赖 (可选)
+
+如果使用 Python 版本的工具，需要 Python 3.8+

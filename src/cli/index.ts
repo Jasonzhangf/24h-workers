@@ -3,7 +3,7 @@
  * Drudge CLI Entry
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -67,18 +67,28 @@ function getCurrentTmuxSession(): string | null {
 }
 
 /**
- * 创建 tmux session
+ * 创建 tmux session 并在其中启动命令
  */
-function createTmuxSession(sessionName: string, cwd: string): boolean {
-  try {
-    const result = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], {
-      encoding: 'utf8',
-      timeout: 5000
+function runInTmuxSession(sessionName: string, cwd: string, command: string, args: string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const fullArgs = ['new-session', '-d', '-s', sessionName, '-c', cwd, command, ...args];
+    
+    console.log(`Starting in tmux session: ${sessionName}`);
+    
+    const proc = spawn('tmux', fullArgs, {
+      stdio: 'inherit'
     });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
+    
+    proc.on('exit', (code) => {
+      console.log(`Tmux session exited: ${sessionName}`);
+      resolve(code || 0);
+    });
+    
+    proc.on('error', (err) => {
+      console.error(`Failed to start tmux session: ${err.message}`);
+      reject(err);
+    });
+  });
 }
 
 /**
@@ -204,17 +214,6 @@ async function cmdCodex(args: string[]): Promise<void> {
   // 确保配置存在
   generateDefaultConfig();
 
-  // 检查 tmux session
-  let inTmux = getCurrentTmuxSession() !== null;
-
-  if (!inTmux) {
-    // 创建 tmux session
-    if (!isTmuxSessionAlive(sessionName)) {
-      console.log(`Creating tmux session: ${sessionName}`);
-      createTmuxSession(sessionName, cwd);
-    }
-  }
-
   // 启动 heartbeat daemon
   if (!isDaemonRunning()) {
     console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
@@ -234,17 +233,22 @@ async function cmdCodex(args: string[]): Promise<void> {
 
   console.log(`Heartbeat enabled for session: ${sessionName}`);
 
-  // 启动 codex
-  if (inTmux) {
-    // 直接在当前 tmux 中启动
+  // 检查当前是否在 tmux 中
+  const currentTmuxSession = getCurrentTmuxSession();
+  
+  if (currentTmuxSession) {
+    // 在当前 tmux 中直接启动
+    console.log(`Starting in current tmux session: ${currentTmuxSession}`);
     spawnSync('codex', args, { stdio: 'inherit' });
   } else {
-    // 在 tmux session 中启动
-    spawnSync('tmux', ['send-keys', '-t', sessionName, 'codex', ...args, 'C-m'], {
-      stdio: 'inherit'
-    });
-    // attach 到 session
-    spawnSync('tmux', ['attach', '-t', sessionName], { stdio: 'inherit' });
+    // 在新的 tmux session 中启动
+    try {
+      const exitCode = await runInTmuxSession(sessionName, cwd, 'codex', args);
+      process.exit(exitCode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      printError(`Failed to start codex in tmux: ${message}`);
+    }
   }
 }
 
@@ -260,17 +264,6 @@ async function cmdClaude(args: string[]): Promise<void> {
   // 确保配置存在
   generateDefaultConfig();
 
-  // 检查 tmux session
-  let inTmux = getCurrentTmuxSession() !== null;
-
-  if (!inTmux) {
-    // 创建 tmux session
-    if (!isTmuxSessionAlive(sessionName)) {
-      console.log(`Creating tmux session: ${sessionName}`);
-      createTmuxSession(sessionName, cwd);
-    }
-  }
-
   // 启动 heartbeat daemon
   if (!isDaemonRunning()) {
     console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
@@ -290,17 +283,22 @@ async function cmdClaude(args: string[]): Promise<void> {
 
   console.log(`Heartbeat enabled for session: ${sessionName}`);
 
-  // 启动 claude
-  if (inTmux) {
-    // 直接在当前 tmux 中启动
+  // 检查当前是否在 tmux 中
+  const currentTmuxSession = getCurrentTmuxSession();
+  
+  if (currentTmuxSession) {
+    // 在当前 tmux 中直接启动
+    console.log(`Starting in current tmux session: ${currentTmuxSession}`);
     spawnSync('claude', args, { stdio: 'inherit' });
   } else {
-    // 在 tmux session 中启动
-    spawnSync('tmux', ['send-keys', '-t', sessionName, 'claude', ...args, 'C-m'], {
-      stdio: 'inherit'
-    });
-    // attach 到 session
-    spawnSync('tmux', ['attach', '-t', sessionName], { stdio: 'inherit' });
+    // 在新的 tmux session 中启动
+    try {
+      const exitCode = await runInTmuxSession(sessionName, cwd, 'claude', args);
+      process.exit(exitCode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      printError(`Failed to start claude in tmux: ${message}`);
+    }
   }
 }
 
