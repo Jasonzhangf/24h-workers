@@ -61,7 +61,7 @@ function getCurrentTmuxSession(): string | null {
       return result.stdout.trim();
     }
   } catch {
-    // not in tmux
+    return null;
   }
   return null;
 }
@@ -69,25 +69,73 @@ function getCurrentTmuxSession(): string | null {
 /**
  * 创建 tmux session 并在其中启动命令
  */
-function runInTmuxSession(sessionName: string, cwd: string, command: string, args: string[]): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const fullArgs = ['new-session', '-d', '-s', sessionName, '-c', cwd, command, ...args];
-    
-    console.log(`Starting in tmux session: ${sessionName}`);
-    
-    const proc = spawn('tmux', fullArgs, {
-      stdio: 'inherit'
+function runInTmuxSession(sessionName: string, cwd: string, command: string, args: string[]): void {
+  // 1. 检查 session 是否已存在
+  const existingSession = spawnSync('tmux', ['has-session', '-t', sessionName], {
+    encoding: 'utf8'
+  });
+  
+  if (existingSession.status !== 0) {
+    // 创建 tmux session（后台）
+    console.log(`Creating tmux session: ${sessionName}`);
+    const createResult = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], {
+      encoding: 'utf8',
+      timeout: 5000
     });
     
-    proc.on('exit', (code) => {
-      console.log(`Tmux session exited: ${sessionName}`);
-      resolve(code || 0);
-    });
+    if (createResult.status !== 0) {
+      console.error(`Failed to create tmux session: ${createResult.stderr || 'unknown error'}`);
+      return;
+    }
     
-    proc.on('error', (err) => {
-      console.error(`Failed to start tmux session: ${err.message}`);
-      reject(err);
+    // 设置终端选项
+    spawnSync('tmux', ['set-option', '-t', sessionName, '-g', 'default-terminal', 'tmux-256color'], {
+      encoding: 'utf8'
     });
+  } else {
+    console.log(`Using existing tmux session: ${sessionName}`);
+  }
+  
+  // 2. 构建命令
+  const shellCommand = `${command} ${args.map(a => a.includes(' ') ? `'${a}'` : a).join(' ')}`;
+  
+  // 3. 取消 copy mode
+  spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, '-X', 'cancel'], {
+    encoding: 'utf8'
+  });
+  
+  // 4. 清空当前行
+  spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, 'C-u'], {
+    encoding: 'utf8'
+  });
+  
+  // 5. 发送命令（字面量）
+  const literalResult = spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, '-l', '--', shellCommand], {
+    encoding: 'utf8'
+  });
+  
+  if (literalResult.status !== 0) {
+    console.error(`Failed to send command: ${literalResult.stderr || 'unknown error'}`);
+    return;
+  }
+  
+  // 6. 发送 Enter 键
+  const submitResult = spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, 'Enter'], {
+    encoding: 'utf8'
+  });
+  
+  if (submitResult.status !== 0) {
+    console.error(`Failed to submit command: ${submitResult.stderr || 'unknown error'}`);
+    return;
+  }
+  
+  console.log(`Started ${command} in tmux session: ${sessionName}`);
+  console.log(`Attach with: tmux attach -t ${sessionName}`);
+  
+  // 7. Attach 到 session
+  spawnSync('tmux', ['attach-session', '-t', sessionName], {
+    stdio: 'inherit',
+    env: process.env
   });
 }
 
@@ -105,19 +153,16 @@ function cmdInit(options: CliOptions): void {
 
   console.log('Initializing Drudge...');
 
-  // 创建配置目录
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
     console.log(`Created: ${configDir}`);
   }
 
-  // 创建 sessions 目录
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
     console.log(`Created: ${sessionsDir}`);
   }
 
-  // 创建默认提示词文件
   if (!fs.existsSync(promptFile)) {
     const defaultPrompt = `[Heartbeat]
 请读取当前目录的 HEARTBEAT.md 进行任务巡检。
@@ -130,22 +175,18 @@ function cmdInit(options: CliOptions): void {
     console.log(`Exists: ${promptFile}`);
   }
 
-  // 处理配置文件
   let config: any;
   let projectAdded = false;
 
   if (fs.existsSync(configFile)) {
-    // 读取现有配置
     const content = fs.readFileSync(configFile, 'utf8');
     config = JSON.parse(content);
     console.log(`Exists: ${configFile}`);
 
-    // 检查当前项目是否已在配置中
     const existingProject = config.projects?.find((p: any) => p.path === cwd);
     if (existingProject) {
       console.log(`Project already configured: ${cwd}`);
     } else {
-      // 添加当前项目
       if (!config.projects) {
         config.projects = [];
       }
@@ -159,7 +200,6 @@ function cmdInit(options: CliOptions): void {
       projectAdded = true;
     }
   } else {
-    // 创建新配置文件，包含当前项目
     config = {
       version: '1.0.0',
       projects: [
@@ -211,10 +251,8 @@ async function cmdCodex(args: string[]): Promise<void> {
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
-  // 确保配置存在
   generateDefaultConfig();
 
-  // 启动 heartbeat daemon
   if (!isDaemonRunning()) {
     console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
     const config = {
@@ -226,30 +264,13 @@ async function cmdCodex(args: string[]): Promise<void> {
     await startDaemon(config as any);
   }
 
-  // 启用 session
   setSessionEnabled(sessionName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
   });
 
   console.log(`Heartbeat enabled for session: ${sessionName}`);
 
-  // 检查当前是否在 tmux 中
-  const currentTmuxSession = getCurrentTmuxSession();
-  
-  if (currentTmuxSession) {
-    // 在当前 tmux 中直接启动
-    console.log(`Starting in current tmux session: ${currentTmuxSession}`);
-    spawnSync('codex', args, { stdio: 'inherit' });
-  } else {
-    // 在新的 tmux session 中启动
-    try {
-      const exitCode = await runInTmuxSession(sessionName, cwd, 'codex', args);
-      process.exit(exitCode);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      printError(`Failed to start codex in tmux: ${message}`);
-    }
-  }
+  runInTmuxSession(sessionName, cwd, 'codex', args);
 }
 
 /**
@@ -261,10 +282,8 @@ async function cmdClaude(args: string[]): Promise<void> {
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
-  // 确保配置存在
   generateDefaultConfig();
 
-  // 启动 heartbeat daemon
   if (!isDaemonRunning()) {
     console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
     const config = {
@@ -276,30 +295,13 @@ async function cmdClaude(args: string[]): Promise<void> {
     await startDaemon(config as any);
   }
 
-  // 启用 session
   setSessionEnabled(sessionName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
   });
 
   console.log(`Heartbeat enabled for session: ${sessionName}`);
 
-  // 检查当前是否在 tmux 中
-  const currentTmuxSession = getCurrentTmuxSession();
-  
-  if (currentTmuxSession) {
-    // 在当前 tmux 中直接启动
-    console.log(`Starting in current tmux session: ${currentTmuxSession}`);
-    spawnSync('claude', args, { stdio: 'inherit' });
-  } else {
-    // 在新的 tmux session 中启动
-    try {
-      const exitCode = await runInTmuxSession(sessionName, cwd, 'claude', args);
-      process.exit(exitCode);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      printError(`Failed to start claude in tmux: ${message}`);
-    }
-  }
+  runInTmuxSession(sessionName, cwd, 'claude', args);
 }
 
 /**
@@ -398,7 +400,6 @@ async function cmdHeartbeatTrigger(options: CliOptions): Promise<void> {
   const promptFile = getPromptFile(cwd);
   const stateDir = path.join(process.env.HOME || '~', '.drudge');
 
-  // 读取提示词
   let prompt = '';
   if (fs.existsSync(promptFile)) {
     prompt = fs.readFileSync(promptFile, 'utf8');
@@ -409,11 +410,9 @@ async function cmdHeartbeatTrigger(options: CliOptions): Promise<void> {
     return;
   }
 
-  // 构建注入文本
   const timeTag = buildTimeTagLine();
   const injectText = `${timeTag}\n\n${prompt}`;
 
-  // 注入到 tmux
   const result = await injectTmuxText({
     sessionId,
     text: injectText,
@@ -617,7 +616,6 @@ async function main(): Promise<void> {
 
   const command = args[0];
 
-  // init 命令
   if (command === 'init') {
     const options: CliOptions = {};
     for (let i = 1; i < args.length; i++) {
@@ -629,7 +627,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // codex 和 claude 直接透传所有参数
   if (command === 'codex') {
     await cmdCodex(args.slice(1));
     return;
@@ -640,7 +637,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // 其他命令解析选项
   const options: CliOptions = {};
 
   for (let i = 1; i < args.length; i++) {
@@ -667,9 +663,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // 获取子命令参数
   const subArgs = args.slice(1).filter((a, i, arr) => {
-    // 过滤掉选项和选项值
     if (a === '-s' || a === '--session') return false;
     if (i > 0 && (arr[i - 1] === '-s' || arr[i - 1] === '--session')) return false;
     if (a === '--json') return false;
