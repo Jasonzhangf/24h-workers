@@ -28,6 +28,48 @@
 
 ---
 
+## [2026-03-17 06:46] - 新增 cmdClaude 测试覆盖
+
+### 完成内容
+
+**测试增强**: Review 反馈修正 - cmdClaude 测试覆盖
+
+**问题**:
+- 之前只有 cmdCodex 的测试覆盖
+- cmdClaude 的唯一真源使用尚未被验证
+
+**修复内容**:
+1. **新建 tests/cli/cmdClaude.test.ts**:
+   - 验证不直接调用 `spawnSync("tmux has-session")`
+   - 验证导入语句正确
+   - 验证使用 `isTmuxSessionAlive()` 检查 session
+   - 验证使用 `attachToExistingTmuxSession()` 进行 attach 操作
+
+2. **新增测试用例**:
+   - `should use isTmuxSessionAlive (唯一真源) when session exists`
+   - `should NOT use spawnSync("tmux has-session") directly`
+   - `should import attachToExistingTmuxSession from tmux/attach module`
+   - `should import isTmuxSessionAlive from tmux/session-probe module`
+   - `should use isTmuxSessionAlive in cmdClaude function`
+   - `should use attachToExistingTmuxSession in cmdClaude function`
+
+3. **测试结果**:
+   ```
+   ✔ cmdClaude: 6/6 tests passed
+   ✔ cmdCodex: 4/4 tests passed
+   ✔ 其他测试: 25/25 tests passed
+   ✔ 总计: 35/35 tests passed
+   ```
+
+4. **验证结果**:
+   - ✅ cmdCodex 和 cmdClaude 都使用 `isTmuxSessionAlive()` 作为唯一真源
+   - ✅ 没有发现任何直调用 `spawnSync('tmux has-session')` 的代码
+   - ✅ attach 操作使用 `attachToExistingTmuxSession()` 作为唯一真源
+
+**版本**: v0.1.2
+
+---
+
 ## [2026-03-17 06:45] - 提取 attach helper 为独立模块并添加测试
 
 ### 完成内容
