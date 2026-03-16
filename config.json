@@ -1,0 +1,13 @@
+{
+  "tickMs": 900000,
+  "promptFile": "HEARTBEAT.md",
+  "proxy": {
+    "enabled": false,
+    "anthropicPort": 8081,
+    "openaiPort": 8082,
+    "geminiPort": 8083
+  },
+  "finishReason": {
+    "triggerOn": ["stop"]
+  }
+}

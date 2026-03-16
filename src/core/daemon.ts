@@ -1,0 +1,185 @@
+/**
+ * Heartbeat Daemon Module
+ * 定时主循环
+ * 唯一真源：所有 daemon 启停
+ */
+
+import { isTmuxSessionAlive } from '../tmux/session-probe.js';
+import { triggerHeartbeat, shouldTrigger } from './trigger.js';
+import { 
+  listEnabledSessions, 
+  loadSession, 
+  saveSession, 
+  updateSession 
+} from './state-store.js';
+import type { HeartbeatConfig } from './config.js';
+
+export interface DaemonState {
+  started: boolean;
+  timer?: NodeJS.Timeout;
+  config?: HeartbeatConfig;
+}
+
+const daemonState: DaemonState = {
+  started: false
+};
+
+/**
+ * 运行一次 tick
+ */
+async function runTick(config: HeartbeatConfig): Promise<void> {
+  const sessions = listEnabledSessions({ stateDir: config.stateDir });
+  
+  for (const session of sessions) {
+    try {
+      // 检查 session 是否存活
+      if (!isTmuxSessionAlive(session.sessionId)) {
+        await disableSession(session.sessionId, 'session_not_found', config);
+        continue;
+      }
+      
+      // 检查是否需要触发
+      if (!shouldTrigger(session, config.tickMs)) {
+        continue;
+      }
+      
+      // 触发 heartbeat
+      const result = await triggerHeartbeat(session, {
+        promptFile: config.promptFile
+      });
+      
+      if (result.ok) {
+        // 更新成功状态
+        updateSession(session.sessionId, {
+          triggerCount: session.triggerCount + 1,
+          lastTriggeredAtMs: Date.now(),
+          lastError: undefined
+        }, { stateDir: config.stateDir });
+      } else {
+        // 更新失败状态
+        updateSession(session.sessionId, {
+          lastError: result.reason
+        }, { stateDir: config.stateDir });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Heartbeat] Error processing session ${session.sessionId}:`, message);
+    }
+  }
+}
+
+/**
+ * 禁用 session
+ */
+async function disableSession(
+  sessionId: string,
+  reason: string,
+  config: HeartbeatConfig
+): Promise<void> {
+  updateSession(sessionId, {
+    enabled: false,
+    lastError: reason
+  }, { stateDir: config.stateDir });
+}
+
+/**
+ * 启动 daemon
+ * 唯一真源：所有 daemon 启动
+ */
+export async function startDaemon(config: HeartbeatConfig): Promise<void> {
+  if (daemonState.started) {
+    console.log('[Heartbeat] Daemon already running');
+    return;
+  }
+  
+  daemonState.started = true;
+  daemonState.config = config;
+  
+  console.log(`[Heartbeat] Starting daemon with tick=${config.tickMs}ms`);
+  
+  // 首次立即执行
+  await runTick(config);
+  
+  // 设置定时器
+  daemonState.timer = setInterval(async () => {
+    if (!daemonState.started || !daemonState.config) {
+      return;
+    }
+    await runTick(daemonState.config);
+  }, config.tickMs);
+  
+  // 允许进程退出时自动停止
+  daemonState.timer.unref?.();
+  
+  console.log('[Heartbeat] Daemon started');
+}
+
+/**
+ * 停止 daemon
+ * 唯一真源：所有 daemon 停止
+ */
+export function stopDaemon(): void {
+  if (!daemonState.started) {
+    return;
+  }
+  
+  if (daemonState.timer) {
+    clearInterval(daemonState.timer);
+    daemonState.timer = undefined;
+  }
+  
+  daemonState.started = false;
+  daemonState.config = undefined;
+  
+  console.log('[Heartbeat] Daemon stopped');
+}
+
+/**
+ * 检查 daemon 是否运行
+ */
+export function isDaemonRunning(): boolean {
+  return daemonState.started;
+}
+
+/**
+ * 获取 daemon 状态
+ */
+export function getDaemonState(): DaemonState {
+  return { ...daemonState };
+}
+
+/**
+ * 手动触发一次（不受 tick 限制）
+ */
+export async function triggerOnce(
+  sessionId: string,
+  config: HeartbeatConfig
+): Promise<{ ok: boolean; reason?: string }> {
+  const session = loadSession(sessionId, { stateDir: config.stateDir });
+  
+  if (!session) {
+    return { ok: false, reason: 'session_not_found' };
+  }
+  
+  if (!session.enabled) {
+    return { ok: false, reason: 'session_disabled' };
+  }
+  
+  if (!isTmuxSessionAlive(sessionId)) {
+    return { ok: false, reason: 'tmux_session_not_found' };
+  }
+  
+  const result = await triggerHeartbeat(session, {
+    promptFile: config.promptFile
+  });
+  
+  if (result.ok) {
+    updateSession(sessionId, {
+      triggerCount: session.triggerCount + 1,
+      lastTriggeredAtMs: Date.now(),
+      lastError: undefined
+    }, { stateDir: config.stateDir });
+  }
+  
+  return result;
+}

@@ -1,0 +1,31 @@
+{
+  "name": "heartbeat",
+  "version": "0.1.0",
+  "description": "Independent heartbeat tool with tmux injection and optional proxy mode",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "heartbeat": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli/index.js start",
+    "dev": "tsc --watch",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "test:run": "npm run build && node --test dist/tests/**/*.test.js"
+  },
+  "keywords": [
+    "heartbeat",
+    "tmux",
+    "proxy"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}
