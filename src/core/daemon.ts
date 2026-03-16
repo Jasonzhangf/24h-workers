@@ -63,7 +63,7 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[Heartbeat] Error processing session ${session.sessionId}:`, message);
+      console.error(`[Drudge] Error processing session ${session.sessionId}:`, message);
     }
   }
 }
@@ -88,14 +88,14 @@ async function disableSession(
  */
 export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   if (daemonState.started) {
-    console.log('[Heartbeat] Daemon already running');
+    console.log('[Drudge] Daemon already running');
     return;
   }
   
   daemonState.started = true;
   daemonState.config = config;
   
-  console.log(`[Heartbeat] Starting daemon with tick=${config.tickMs}ms`);
+  console.log(`[Drudge] Starting daemon with tick=${config.tickMs}ms`);
   
   // 首次立即执行
   await runTick(config);
@@ -111,7 +111,7 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   // 允许进程退出时自动停止
   daemonState.timer.unref?.();
   
-  console.log('[Heartbeat] Daemon started');
+  console.log('[Drudge] Daemon started');
 }
 
 /**
@@ -131,7 +131,7 @@ export function stopDaemon(): void {
   daemonState.started = false;
   daemonState.config = undefined;
   
-  console.log('[Heartbeat] Daemon stopped');
+  console.log('[Drudge] Daemon stopped');
 }
 
 /**

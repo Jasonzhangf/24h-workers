@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Heartbeat CLI Entry
+ * Drudge CLI Entry
  */
 
 import { resolveConfig } from '../core/config.js';
@@ -43,7 +43,7 @@ async function cmdStart(options: CliOptions): Promise<void> {
   const config = resolveConfig({ configPath: options.config });
   
   if (isDaemonRunning()) {
-    console.log('Heartbeat daemon is already running');
+    console.log('Drudge daemon is already running');
     return;
   }
   
@@ -53,7 +53,7 @@ async function cmdStart(options: CliOptions): Promise<void> {
   }
   
   await startDaemon(config);
-  console.log('Heartbeat daemon started');
+  console.log('Drudge daemon started');
   
   if (options.json) {
     printJson({ ok: true, tickMs: config.tickMs, proxy: config.proxy.enabled });
@@ -62,13 +62,13 @@ async function cmdStart(options: CliOptions): Promise<void> {
 
 async function cmdStop(_options: CliOptions): Promise<void> {
   if (!isDaemonRunning()) {
-    console.log('Heartbeat daemon is not running');
+    console.log('Drudge daemon is not running');
     return;
   }
   
   stopDaemon();
   await stopProxyServers();
-  console.log('Heartbeat daemon stopped');
+  console.log('Drudge daemon stopped');
 }
 
 async function cmdTrigger(options: CliOptions): Promise<void> {
@@ -88,7 +88,7 @@ async function cmdTrigger(options: CliOptions): Promise<void> {
   }
   
   if (result.ok) {
-    console.log(`Heartbeat triggered for session: ${sessionId}`);
+    console.log(`Drudge triggered for session: ${sessionId}`);
   } else {
     printError(result.reason || 'Trigger failed');
   }
@@ -213,7 +213,7 @@ async function cmdShow(options: CliOptions): Promise<void> {
 
 function printHelp(): void {
   console.log(`
-Heartbeat CLI v${VERSION}
+Drudge CLI v${VERSION}
 
 Commands:
   start              Start heartbeat daemon
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
     }
     
     if (arg === '-v' || arg === '--version') {
-      console.log(`heartbeat v${VERSION}`);
+      console.log(`drudge v${VERSION}`);
       process.exit(0);
     }
     
