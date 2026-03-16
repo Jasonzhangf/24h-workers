@@ -28,6 +28,50 @@
 
 ---
 
+## [2026-03-17 06:30] - 代码重构：使用唯一真源函数
+
+### 完成内容
+
+**代码重构**: Review 反馈修正
+
+**问题**:
+- `cmdCodex/cmdClaude` 直接使用 `spawnSync('tmux has-session')` 检查 session
+- 与 `tmux/session-probe.ts` 的 `isTmuxSessionAlive` 唯一真源重复
+- attach 逻辑重复，缺少测试覆盖
+
+**修复内容**:
+1. **使用唯一真源函数**:
+   - 把 `spawnSync('tmux', ['has-session', '-t', projectName])` 改为调用 `isTmuxSessionAlive(projectName)`
+   - 避免重复实现 session 存活检测逻辑
+
+2. **提取 attach 逻辑为函数**:
+   - 新增 `attachToExistingTmuxSession` 函数
+   - 复用 attach 逻辑，避免代码重复
+
+3. **测试验证**:
+   - `npm test` 全部通过（25/25）
+   - 编译成功，无 TypeScript 错误
+
+**手动验证步骤**:
+
+```bash
+# 1. 创建一个已存在的 tmux session
+tmux new-session -d -s test-session -c /tmp
+
+# 2. 在该 session 所在目录执行 drudge codex
+cd /tmp
+drudge codex
+
+# 预期结果: 直接 attach 到现有 test-session，不创建新 session
+
+# 3. 清理 session
+tmux kill-session -t test-session
+```
+
+**版本**: v0.1.2
+
+---
+
 ## [2026-03-16 18:50] - 项目完成
 
 ### 完成内容

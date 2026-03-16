@@ -264,6 +264,26 @@ function cmdInit(options: CliOptions): void {
   console.log(`Drudge initialized for: ${projectName}`);
 }
 
+
+/**
+ * Attach 到现有的 tmux session
+ */
+function attachToExistingTmuxSession(args: {
+  sessionName: string;
+  envOverrides: Record<string, string>;
+  cwd: string;
+}): void {
+  const { sessionName, envOverrides, cwd } = args;
+  const tmux = spawn('tmux', ['attach-session', '-t', sessionName], {
+    stdio: 'inherit',
+    env: { ...process.env, ...envOverrides },
+    cwd
+  });
+  tmux.on('exit', (code) => {
+    process.exit(code || 0);
+  });
+}
+
 /**
  * 启动 codex
  */
@@ -315,19 +335,13 @@ async function cmdCodex(args: string[]): Promise<void> {
 
   // 不在 tmux 中，创建受管理的 tmux session
   // 首先检查是否已经存在同名的 session
-  const existingSessionCheck = spawnSync('tmux', ['has-session', '-t', projectName], { encoding: 'utf8', timeout: 1000 });
-  const sessionAlreadyExists = existingSessionCheck.status === 0;
+  const sessionAlreadyExists = isTmuxSessionAlive(projectName);
 
-  if (sessionAlreadyExists) {
-    // Session 已存在，直接 attach
-    console.log(`Attaching to existing tmux session: ${projectName}`);
-    const tmux = spawn('tmux', ['attach-session', '-t', projectName], {
-      stdio: 'inherit',
-      env: { ...process.env, ...envOverrides },
+ if (sessionAlreadyExists) {
+    attachToExistingTmuxSession({
+      sessionName: projectName,
+      envOverrides,
       cwd
-    });
-    tmux.on('exit', (code) => {
-      process.exit(code || 0);
     });
     return;
   }
@@ -414,21 +428,14 @@ async function cmdClaude(args: string[]): Promise<void> {
     return;
   }
 
-  // 不在 tmux 中，创建受管理的 tmux session
-  // 首先检查是否已经存在同名的 session
-  const existingSessionCheck = spawnSync('tmux', ['has-session', '-t', projectName], { encoding: 'utf8', timeout: 1000 });
-  const sessionAlreadyExists = existingSessionCheck.status === 0;
+ // 不在 tmux 中，创建受管理的 tmux session
+  const sessionAlreadyExists = isTmuxSessionAlive(projectName);
 
   if (sessionAlreadyExists) {
-    // Session 已存在，直接 attach
-    console.log(`Attaching to existing tmux session: ${projectName}`);
-    const tmux = spawn('tmux', ['attach-session', '-t', projectName], {
-      stdio: 'inherit',
-      env: { ...process.env, ...envOverrides },
+    attachToExistingTmuxSession({
+      sessionName: projectName,
+      envOverrides,
       cwd
-    });
-    tmux.on('exit', (code) => {
-      process.exit(code || 0);
     });
     return;
   }
