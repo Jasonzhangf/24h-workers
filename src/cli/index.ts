@@ -57,6 +57,7 @@ function createManagedTmuxSession(args: {
   sessionName?: string;
 }): { sessionName: string; tmuxTarget: string; stop: () => void } | null {
   const { cwd, sessionName: preferredName } = args;
+  logToFile(`createManagedTmuxSession called: preferredName=${preferredName}, cwd=${cwd}`);
   const baseName = preferredName || path.basename(cwd);
 
  // 生成唯一 session 名称
@@ -74,6 +75,7 @@ function createManagedTmuxSession(args: {
   if (attempt >= 6) {
     logToFile(`Could not find available session name after 6 attempts`);
     return null;
+  logToFile(`createManagedTmuxSession: attempting to create session: ${sessionName}`);
   }
 
  try {
@@ -88,10 +90,12 @@ function createManagedTmuxSession(args: {
   }
 
   // 配置终端渲染
+  logToFile(`createManagedTmuxSession: session created successfully: ${sessionName}`);
   const tmuxTarget = `${sessionName}:0.0`;
   try {
     spawnSync('tmux', ['set-option', '-t', sessionName, '-g', 'default-terminal', 'tmux-256color'], { encoding: 'utf8' });
-  } catch { /* ignore */ }
+} catch { /* ignore */ }
+
   try {
     spawnSync('tmux', ['set-option', '-t', sessionName, '-ga', 'terminal-features', ',*:RGB'], { encoding: 'utf8' });
   } catch { /* ignore */ }
