@@ -291,6 +291,7 @@ function cmdInit(options: CliOptions): void {
 async function cmdCodex(args: string[]): Promise<void> {
   const cwd = process.cwd();
   const projectName = getProjectName(cwd);
+  logToFile(`cmdCodex called: projectName=${projectName}, cwd=${cwd}`);
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
@@ -318,6 +319,7 @@ async function cmdCodex(args: string[]): Promise<void> {
 
   // 检测当前是否在 tmux 中
   const currentTmuxTarget = resolveCurrentTmuxTarget();
+  logToFile(`cmdCodex: currentTmuxTarget=${currentTmuxTarget}`);
 
   if (currentTmuxTarget) {
     // 已在 tmux 中，直接在��前 pane 启动命令
@@ -337,6 +339,7 @@ async function cmdCodex(args: string[]): Promise<void> {
   // 不在 tmux 中，创建受管理的 tmux session
   // 首先检查是否已经存在同名的 session
   const sessionAlreadyExists = isTmuxSessionAlive(projectName);
+  logToFile(`cmdCodex: sessionAlreadyExists=${sessionAlreadyExists}, projectName=${projectName}`);
 
  if (sessionAlreadyExists) {
     attachToExistingTmuxSession({
