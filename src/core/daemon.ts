@@ -103,8 +103,6 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   
   console.log(`[Drudge] Starting daemon with tick=${tickMs}ms`);
   
-  // 首次立即执行
-  await runTick(config);
   
   // 设置定时器
   daemonState.timer = setInterval(async () => {

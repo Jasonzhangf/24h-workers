@@ -1,6 +1,6 @@
 {
   "name": "drudge",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Independent heartbeat tool with tmux injection and optional proxy mode",
   "type": "module",
   "main": "dist/index.js",

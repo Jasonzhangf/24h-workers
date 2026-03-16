@@ -1,5 +1,33 @@
 # 交付记录
 
+## [2026-03-17 05:58] - 修复 session 处理逻辑
+
+### 完成内容
+
+**Bug 修复**: `drudge codex` 无法正确启动，报错 `can't find session: routecodex`
+
+**问题原因**:
+- 当已存在同名的 tmux session 时，`createManagedTmuxSession` 会失败（尝试 6 次后返回 null）
+- 但代码没有检查 session 是否已存在，直接尝试创建新 session
+- 导致 `drudge codex` 无法正确启动
+
+**修复内容**:
+1. 在 `cmdCodex` 和 `cmdClaude` 函数中，添加检查逻辑：
+   - 使用 `tmux has-session -t <sessionName>` 检查 session 是否已存在
+   - 如果存在，直接 attach 到现有 session
+   - 如果不存在，再创建新 session
+
+2. 改进错误消息：
+   - 当 `createManagedTmuxSession` 失败时，提供更详细的错误信息
+
+**影响**:
+- 修复了 `drudge codex` 和 `drudge claude` 在 session 已存在时的启动问题
+- 用户现在可以正确地 attach 到现有 session
+
+**版本**: v0.1.2
+
+---
+
 ## [2026-03-16 18:50] - 项目完成
 
 ### 完成内容

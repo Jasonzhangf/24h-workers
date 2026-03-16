@@ -16,24 +16,159 @@ import {
 import {
   startDaemon,
   stopDaemon,
-  isDaemonRunning,
-  triggerOnce
+  isDaemonRunning
 } from '../core/daemon.js';
 import {
-  loadSession,
+  setSessionEnabled,
   listSessions,
-  setSessionEnabled
+  loadSession
 } from '../core/state-store.js';
 import { isTmuxSessionAlive } from '../tmux/session-probe.js';
 import { injectTmuxText } from '../tmux/injector.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.1.2';
 
 interface CliOptions {
   session?: string;
   json?: boolean;
-  cwd?: string;
+}
+
+/**
+ * 创建受管理的 tmux session
+ */
+function createManagedTmuxSession(args: {
+  cwd: string;
+  sessionName?: string;
+}): { sessionName: string; tmuxTarget: string; stop: () => void } | null {
+  const { cwd, sessionName: preferredName } = args;
+  const baseName = preferredName || path.basename(cwd);
+
+  // 生成唯一 session 名称
+  let sessionName = baseName;
+  let attempt = 0;
+  while (attempt < 6) {
+    const checkResult = spawnSync('tmux', ['has-session', '-t', sessionName], { encoding: 'utf8' });
+    if (checkResult.status !== 0) {
+      // session 不存在，可以使用
+      break;
+    }
+    attempt++;
+    sessionName = `${baseName}-${Date.now()}-${attempt}`;
+  }
+
+  if (attempt >= 6) {
+    return null;
+  }
+
+  try {
+    const result = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], { encoding: 'utf8' });
+    if (result.status !== 0) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  // 配置终端渲染
+  const tmuxTarget = `${sessionName}:0.0`;
+  try {
+    spawnSync('tmux', ['set-option', '-t', sessionName, '-g', 'default-terminal', 'tmux-256color'], { encoding: 'utf8' });
+  } catch { /* ignore */ }
+  try {
+    spawnSync('tmux', ['set-option', '-t', sessionName, '-ga', 'terminal-features', ',*:RGB'], { encoding: 'utf8' });
+  } catch { /* ignore */ }
+  // 禁用斜体，避免某些终端渲染问题
+  try {
+    spawnSync('tmux', ['set-option', '-t', sessionName, '-ga', 'terminal-overrides', ',*:sitm@:ritm@'], { encoding: 'utf8' });
+  } catch { /* ignore */ }
+
+  return {
+    sessionName,
+    tmuxTarget,
+    stop: () => {
+      try {
+        spawnSync('tmux', ['kill-session', '-t', sessionName], { encoding: 'utf8' });
+      } catch { /* ignore */ }
+    }
+  };
+}
+
+/**
+ * 检测当前 tmux target
+ */
+function resolveCurrentTmuxTarget(): string | null {
+  const tmuxEnv = typeof process.env.TMUX === 'string' ? process.env.TMUX.trim() : '';
+  if (!tmuxEnv) {
+    return null;
+  }
+  try {
+    const result = spawnSync('tmux', ['display-message', '-p', '#S:#I.#P'], { encoding: 'utf8' });
+    if (result.status !== 0) {
+      return null;
+    }
+    const target = String(result.stdout || '').trim();
+    return target || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shell 引用
+ */
+function shellQuote(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * 在 tmux pane 中启动命令（使用 respawn-pane）
+ */
+function launchCommandInTmuxPane(args: {
+  tmuxTarget: string;
+  cwd: string;
+  command: string;
+  commandArgs: string[];
+  env?: Record<string, string>;
+}): boolean {
+  const { tmuxTarget, cwd, command, commandArgs, env } = args;
+
+  // 构建环境变量前缀
+  const envPrefix = env
+    ? Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`).join(' ')
+    : '';
+
+  // 构建完整命令
+  const fullCommand = [
+    `cd -- ${shellQuote(cwd)} || exit 1`,
+    envPrefix ? `env ${envPrefix}` : '',
+    command,
+    ...commandArgs.map(a => a.includes(' ') || a.includes("'") ? shellQuote(a) : a)
+  ].filter(Boolean).join(' ');
+
+  const shellCommand = `${fullCommand}; __exit=$?; exit $__exit`;
+
+  // 使用 respawn-pane 启动命令
+  try {
+    const respawn = spawnSync('tmux', ['respawn-pane', '-k', '-t', tmuxTarget, shellCommand], { encoding: 'utf8' });
+    if (respawn.status === 0) {
+      return true;
+    }
+  } catch { /* fallback */ }
+
+  // 回退到 send-keys
+  try {
+    spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-X', 'cancel'], { encoding: 'utf8' });
+    spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'C-u'], { encoding: 'utf8' });
+    const literal = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', '--', shellCommand], { encoding: 'utf8' });
+    if (literal.status !== 0) {
+      return false;
+    }
+    spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter'], { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function printJson(data: unknown): void {
@@ -49,97 +184,6 @@ function printError(message: string, code?: string): void {
 }
 
 /**
- * 获取当前 tmux session
- */
-function getCurrentTmuxSession(): string | null {
-  try {
-    const result = spawnSync('tmux', ['display-message', '-p', '#S'], {
-      encoding: 'utf8',
-      timeout: 1000
-    });
-    if (result.status === 0) {
-      return result.stdout.trim();
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-/**
- * 创建 tmux session 并在其中启动命令
- */
-function runInTmuxSession(sessionName: string, cwd: string, command: string, args: string[]): void {
-  // 1. 检查 session 是否已存在
-  const existingSession = spawnSync('tmux', ['has-session', '-t', sessionName], {
-    encoding: 'utf8'
-  });
-  
-  if (existingSession.status !== 0) {
-    // 创建 tmux session（后台）
-    console.log(`Creating tmux session: ${sessionName}`);
-    const createResult = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], {
-      encoding: 'utf8',
-      timeout: 5000
-    });
-    
-    if (createResult.status !== 0) {
-      console.error(`Failed to create tmux session: ${createResult.stderr || 'unknown error'}`);
-      return;
-    }
-    
-    // 设置终端选项
-    spawnSync('tmux', ['set-option', '-t', sessionName, '-g', 'default-terminal', 'tmux-256color'], {
-      encoding: 'utf8'
-    });
-  } else {
-    console.log(`Using existing tmux session: ${sessionName}`);
-  }
-  
-  // 2. 构建命令
-  const shellCommand = `${command} ${args.map(a => a.includes(' ') ? `'${a}'` : a).join(' ')}`;
-  
-  // 3. 取消 copy mode
-  spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, '-X', 'cancel'], {
-    encoding: 'utf8'
-  });
-  
-  // 4. 清空当前行
-  spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, 'C-u'], {
-    encoding: 'utf8'
-  });
-  
-  // 5. 发送命令（字面量）
-  const literalResult = spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, '-l', '--', shellCommand], {
-    encoding: 'utf8'
-  });
-  
-  if (literalResult.status !== 0) {
-    console.error(`Failed to send command: ${literalResult.stderr || 'unknown error'}`);
-    return;
-  }
-  
-  // 6. 发送 Enter 键
-  const submitResult = spawnSync('tmux', ['send-keys', '-t', `${sessionName}:0.0`, 'Enter'], {
-    encoding: 'utf8'
-  });
-  
-  if (submitResult.status !== 0) {
-    console.error(`Failed to submit command: ${submitResult.stderr || 'unknown error'}`);
-    return;
-  }
-  
-  console.log(`Started ${command} in tmux session: ${sessionName}`);
-  console.log(`Attach with: tmux attach -t ${sessionName}`);
-  
-  // 7. Attach 到 session
-  spawnSync('tmux', ['attach-session', '-t', sessionName], {
-    stdio: 'inherit',
-    env: process.env
-  });
-}
-
-/**
  * 初始化配置
  */
 function cmdInit(options: CliOptions): void {
@@ -151,16 +195,12 @@ function cmdInit(options: CliOptions): void {
   const cwd = process.cwd();
   const projectName = path.basename(cwd);
 
-  console.log('Initializing Drudge...');
-
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
-    console.log(`Created: ${configDir}`);
   }
 
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
-    console.log(`Created: ${sessionsDir}`);
   }
 
   if (!fs.existsSync(promptFile)) {
@@ -170,23 +210,16 @@ function cmdInit(options: CliOptions): void {
 完成后更新 DELIVERY.md，然后调用 review。
 不要只做汇报；如果仍有未完成项，请直接继续执行。`;
     fs.writeFileSync(promptFile, defaultPrompt);
-    console.log(`Created: ${promptFile}`);
-  } else {
-    console.log(`Exists: ${promptFile}`);
   }
 
   let config: any;
-  let projectAdded = false;
 
   if (fs.existsSync(configFile)) {
     const content = fs.readFileSync(configFile, 'utf8');
     config = JSON.parse(content);
-    console.log(`Exists: ${configFile}`);
 
     const existingProject = config.projects?.find((p: any) => p.path === cwd);
-    if (existingProject) {
-      console.log(`Project already configured: ${cwd}`);
-    } else {
+    if (!existingProject) {
       if (!config.projects) {
         config.projects = [];
       }
@@ -196,8 +229,6 @@ function cmdInit(options: CliOptions): void {
         promptFile: '~/.drudge/HEARTBEAT.md'
       });
       fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-      console.log(`Added project: ${cwd}`);
-      projectAdded = true;
     }
   } else {
     config = {
@@ -215,9 +246,6 @@ function cmdInit(options: CliOptions): void {
       }
     };
     fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-    console.log(`Created: ${configFile}`);
-    console.log(`Added project: ${cwd}`);
-    projectAdded = true;
   }
 
   if (options.json) {
@@ -228,18 +256,12 @@ function cmdInit(options: CliOptions): void {
       promptFile,
       sessionsDir,
       projectPath: cwd,
-      projectName,
-      projectAdded
+      projectName
     });
     return;
   }
 
-  console.log('\nDrudge initialized successfully!');
-  console.log(`\nProject: ${projectName}`);
-  console.log(`Path: ${cwd}`);
-  console.log('\nNext steps:');
-  console.log('  1. Edit ~/.drudge/config.json to customize heartbeat interval');
-  console.log('  2. Run "drudge codex" or "drudge claude" to start');
+  console.log(`Drudge initialized for: ${projectName}`);
 }
 
 /**
@@ -247,14 +269,13 @@ function cmdInit(options: CliOptions): void {
  */
 async function cmdCodex(args: string[]): Promise<void> {
   const cwd = process.cwd();
-  const sessionName = getProjectName(cwd);
+  const projectName = getProjectName(cwd);
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
   generateDefaultConfig();
 
   if (!isDaemonRunning()) {
-    console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
     const config = {
       tickMs: heartbeatInterval,
       promptFile,
@@ -264,13 +285,84 @@ async function cmdCodex(args: string[]): Promise<void> {
     await startDaemon(config as any);
   }
 
-  setSessionEnabled(sessionName, true, {
+  setSessionEnabled(projectName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
   });
 
-  console.log(`Heartbeat enabled for session: ${sessionName}`);
+  // 设置环境变量（确保颜色正常）
+  const envOverrides: Record<string, string> = {
+    TERM: 'tmux-256color',
+    COLORTERM: 'truecolor',
+  };
 
-  runInTmuxSession(sessionName, cwd, 'codex', args);
+  // 检测当前是否在 tmux 中
+  const currentTmuxTarget = resolveCurrentTmuxTarget();
+
+  if (currentTmuxTarget) {
+    // 已在 tmux 中，直接在��前 pane 启动命令
+    const launched = launchCommandInTmuxPane({
+      tmuxTarget: currentTmuxTarget,
+      cwd,
+      command: 'codex',
+      commandArgs: args,
+      env: envOverrides
+    });
+    if (!launched) {
+      printError('Failed to launch codex in current tmux pane');
+    }
+    return;
+  }
+
+  // 不在 tmux 中，创建受管理的 tmux session
+  // 首先检查是否已经存在同名的 session
+  const existingSessionCheck = spawnSync('tmux', ['has-session', '-t', projectName], { encoding: 'utf8', timeout: 1000 });
+  const sessionAlreadyExists = existingSessionCheck.status === 0;
+
+  if (sessionAlreadyExists) {
+    // Session 已存在，直接 attach
+    console.log(`Attaching to existing tmux session: ${projectName}`);
+    const tmux = spawn('tmux', ['attach-session', '-t', projectName], {
+      stdio: 'inherit',
+      env: { ...process.env, ...envOverrides },
+      cwd
+    });
+    tmux.on('exit', (code) => {
+      process.exit(code || 0);
+    });
+    return;
+  }
+
+  const managedSession = createManagedTmuxSession({ cwd, sessionName: projectName });
+  if (!managedSession) {
+    printError('Failed to create managed tmux session. Session might already exist or tmux is not available.');
+    return;
+  }
+
+  // 在 tmux pane 中启动命令
+  const launched = launchCommandInTmuxPane({
+    tmuxTarget: managedSession.tmuxTarget,
+    cwd,
+    command: 'codex',
+    commandArgs: args,
+    env: envOverrides
+  });
+
+  if (!launched) {
+    managedSession.stop();
+    printError('Failed to launch codex in tmux session');
+    return;
+  }
+
+  // Attach 到 tmux session
+  const tmux = spawn('tmux', ['attach-session', '-t', managedSession.sessionName], {
+    stdio: 'inherit',
+    env: { ...process.env, ...envOverrides },
+    cwd
+  });
+
+  tmux.on('exit', (code) => {
+    process.exit(code || 0);
+  });
 }
 
 /**
@@ -278,14 +370,13 @@ async function cmdCodex(args: string[]): Promise<void> {
  */
 async function cmdClaude(args: string[]): Promise<void> {
   const cwd = process.cwd();
-  const sessionName = getProjectName(cwd);
+  const projectName = getProjectName(cwd);
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
   generateDefaultConfig();
 
   if (!isDaemonRunning()) {
-    console.log(`Starting heartbeat daemon (interval: ${heartbeatInterval}ms)`);
     const config = {
       tickMs: heartbeatInterval,
       promptFile,
@@ -295,13 +386,84 @@ async function cmdClaude(args: string[]): Promise<void> {
     await startDaemon(config as any);
   }
 
-  setSessionEnabled(sessionName, true, {
+  setSessionEnabled(projectName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
   });
 
-  console.log(`Heartbeat enabled for session: ${sessionName}`);
+  // 设置环境变量（确保颜色正常）
+  const envOverrides: Record<string, string> = {
+    TERM: 'tmux-256color',
+    COLORTERM: 'truecolor',
+  };
 
-  runInTmuxSession(sessionName, cwd, 'claude', args);
+  // 检测当前是否在 tmux 中
+  const currentTmuxTarget = resolveCurrentTmuxTarget();
+
+  if (currentTmuxTarget) {
+    // 已在 tmux 中，直接在当前 pane 启动命令
+    const launched = launchCommandInTmuxPane({
+      tmuxTarget: currentTmuxTarget,
+      cwd,
+      command: 'claude',
+      commandArgs: args,
+      env: envOverrides
+    });
+    if (!launched) {
+      printError('Failed to launch claude in current tmux pane');
+    }
+    return;
+  }
+
+  // 不在 tmux 中，创建受管理的 tmux session
+  // 首先检查是否已经存在同名的 session
+  const existingSessionCheck = spawnSync('tmux', ['has-session', '-t', projectName], { encoding: 'utf8', timeout: 1000 });
+  const sessionAlreadyExists = existingSessionCheck.status === 0;
+
+  if (sessionAlreadyExists) {
+    // Session 已存在，直接 attach
+    console.log(`Attaching to existing tmux session: ${projectName}`);
+    const tmux = spawn('tmux', ['attach-session', '-t', projectName], {
+      stdio: 'inherit',
+      env: { ...process.env, ...envOverrides },
+      cwd
+    });
+    tmux.on('exit', (code) => {
+      process.exit(code || 0);
+    });
+    return;
+  }
+
+  const managedSession = createManagedTmuxSession({ cwd, sessionName: projectName });
+  if (!managedSession) {
+    printError('Failed to create managed tmux session. Session might already exist or tmux is not available.');
+    return;
+  }
+
+  // 在 tmux pane 中启动命令
+  const launched = launchCommandInTmuxPane({
+    tmuxTarget: managedSession.tmuxTarget,
+    cwd,
+    command: 'claude',
+    commandArgs: args,
+    env: envOverrides
+  });
+
+  if (!launched) {
+    managedSession.stop();
+    printError('Failed to launch claude in tmux session');
+    return;
+  }
+
+  // Attach 到 tmux session
+  const tmux = spawn('tmux', ['attach-session', '-t', managedSession.sessionName], {
+    stdio: 'inherit',
+    env: { ...process.env, ...envOverrides },
+    cwd
+  });
+
+  tmux.on('exit', (code) => {
+    process.exit(code || 0);
+  });
 }
 
 /**
@@ -536,14 +698,14 @@ async function cmdDaemonStatus(options: CliOptions): Promise<void> {
       daemon: running,
       tickMs: heartbeatInterval,
       sessionCount: sessions.length,
-      enabledCount: sessions.filter(s => s.enabled).length
+      enabledCount: sessions.filter((s: any) => s.enabled).length
     });
     return;
   }
 
   console.log(`Daemon: ${running ? 'running' : 'stopped'}`);
   console.log(`Tick: ${heartbeatInterval}ms`);
-  console.log(`Sessions: ${sessions.length} (${sessions.filter(s => s.enabled).length} enabled)`);
+  console.log(`Sessions: ${sessions.length} (${sessions.filter((s: any) => s.enabled).length} enabled)`);
 }
 
 function printHeartbeatHelp(): void {
