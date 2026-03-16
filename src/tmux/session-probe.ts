@@ -27,22 +27,40 @@ export function isTmuxAvailable(): boolean {
 }
 
 /**
- * 规范化 tmux session ID
- * 移除 window/pane 后缀，只保留 session 名
+ * 规范化 tmux session target
+ * 支持格式: session, session:window, session:window.pane
+ * 返回 session 名称
  */
-export function normalizeTmuxSessionId(sessionId: string): string {
-  const trimmed = String(sessionId || '').trim();
-  if (!trimmed) {
+export function normalizeTmuxSessionTarget(tmuxSessionId: string): string {
+  const target = String(tmuxSessionId || '').trim();
+  if (!target) {
     return '';
   }
-  
-  // 移除 window/pane 部分 (session:window.pane -> session)
-  const colonIndex = trimmed.indexOf(':');
-  if (colonIndex >= 0) {
-    return trimmed.slice(0, colonIndex).trim();
+  const separatorIndex = target.indexOf(':');
+  if (separatorIndex < 0) {
+    return target;
   }
-  
-  return trimmed;
+  return target.slice(0, separatorIndex).trim();
+}
+
+/**
+ * 解析 tmux 注入目标
+ * 返回 sessionName 和完整 target
+ */
+export function resolveTmuxInjectionTarget(targetRaw: string): { sessionName: string; target: string } {
+  const target = String(targetRaw || '').trim();
+  if (!target) {
+    return { sessionName: '', target: '' };
+  }
+  const separatorIndex = target.indexOf(':');
+  if (separatorIndex < 0) {
+    return { sessionName: target, target };
+  }
+  const sessionName = target.slice(0, separatorIndex).trim();
+  return {
+    sessionName,
+    target
+  };
 }
 
 /**
@@ -50,8 +68,8 @@ export function normalizeTmuxSessionId(sessionId: string): string {
  * 唯一真源：所有 session 存活检测
  */
 export function isTmuxSessionAlive(sessionId: string): boolean {
-  const normalized = normalizeTmuxSessionId(sessionId);
-  if (!normalized) {
+  const target = normalizeTmuxSessionTarget(sessionId);
+  if (!target) {
     return false;
   }
   
@@ -60,7 +78,7 @@ export function isTmuxSessionAlive(sessionId: string): boolean {
   }
   
   try {
-    const result = spawnSync('tmux', ['has-session', '-t', normalized], { 
+    const result = spawnSync('tmux', ['has-session', '-t', target], { 
       encoding: 'utf8',
       timeout: 1000
     });
@@ -75,8 +93,8 @@ export function isTmuxSessionAlive(sessionId: string): boolean {
  * 唯一真源：所有工作目录获取
  */
 export function resolveTmuxWorkingDirectory(sessionId: string): string | undefined {
-  const normalized = normalizeTmuxSessionId(sessionId);
-  if (!normalized) {
+  const target = normalizeTmuxSessionTarget(sessionId);
+  if (!target) {
     return undefined;
   }
   
@@ -84,14 +102,14 @@ export function resolveTmuxWorkingDirectory(sessionId: string): string | undefin
     return undefined;
   }
   
-  if (!isTmuxSessionAlive(normalized)) {
+  if (!isTmuxSessionAlive(target)) {
     return undefined;
   }
   
   try {
     const result = spawnSync(
       'tmux',
-      ['display-message', '-p', '-t', normalized, '#{pane_current_path}'],
+      ['display-message', '-p', '-t', target, '#{pane_current_path}'],
       { encoding: 'utf8', timeout: 1000 }
     );
     

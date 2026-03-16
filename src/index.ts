@@ -1,5 +1,5 @@
 /**
- * Heartbeat Library Entry
+ * Drudge Library Entry
  */
 
 // Core
@@ -29,7 +29,8 @@ export {
 export {
   isTmuxSessionAlive,
   resolveTmuxWorkingDirectory,
-  normalizeTmuxSessionId
+  normalizeTmuxSessionTarget,
+  resolveTmuxInjectionTarget
 } from './tmux/session-probe.js';
 export {
   injectTmuxText

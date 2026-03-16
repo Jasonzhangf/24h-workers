@@ -5,7 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { isTmuxAvailable, isTmuxSessionAlive, normalizeTmuxSessionId } from './session-probe.js';
+import { isTmuxAvailable, isTmuxSessionAlive, resolveTmuxInjectionTarget, normalizeTmuxSessionTarget } from './session-probe.js';
 
 export interface InjectResult {
   ok: boolean;
@@ -87,9 +87,9 @@ export async function injectTmuxText(input: {
   clientType?: string;
   submit?: boolean;
 }): Promise<InjectResult> {
-  const sessionId = normalizeTmuxSessionId(input.sessionId);
-  if (!sessionId) {
-    return { ok: false, reason: 'session_required' };
+  const resolvedTarget = resolveTmuxInjectionTarget(input.sessionId);
+  if (!resolvedTarget.sessionName || !resolvedTarget.target) {
+    return { ok: false, reason: 'tmux_session_required' };
   }
   
   const text = normalizeInjectedText(input.text);
@@ -101,19 +101,19 @@ export async function injectTmuxText(input: {
     return { ok: false, reason: 'tmux_unavailable' };
   }
   
-  if (!isTmuxSessionAlive(sessionId)) {
-    return { ok: false, reason: 'session_not_found' };
+  if (!isTmuxSessionAlive(resolvedTarget.sessionName)) {
+    return { ok: false, reason: 'tmux_session_not_found' };
   }
   
   try {
     // 取消可能的 copy mode，确保处于正常模式
-    spawnSync('tmux', ['send-keys', '-t', sessionId, '-X', 'cancel'], {
+    spawnSync('tmux', ['send-keys', '-t', resolvedTarget.target, '-X', 'cancel'], {
       encoding: 'utf8',
       timeout: 500
     });
     
     // 发送文本（字面量）
-    const literalResult = spawnSync('tmux', ['send-keys', '-t', sessionId, '-l', '--', text], {
+    const literalResult = spawnSync('tmux', ['send-keys', '-t', resolvedTarget.target, '-l', '--', text], {
       encoding: 'utf8',
       timeout: 2000
     });
@@ -135,7 +135,7 @@ export async function injectTmuxText(input: {
   
   // 发送提交键（默认发送）
   if (input.submit !== false) {
-    const submitResult = sendSubmitKey(sessionId, input.clientType);
+    const submitResult = sendSubmitKey(resolvedTarget.target, input.clientType);
     if (!submitResult.ok) {
       return submitResult;
     }

@@ -9,10 +9,13 @@
   },
   "scripts": {
     "build": "tsc",
+    "postbuild": "chmod +x dist/cli/index.js",
     "start": "node dist/cli/index.js start",
     "dev": "tsc --watch",
     "test": "node --import tsx --test tests/**/*.test.ts",
-    "test:run": "npm run build && node --test dist/tests/**/*.test.js"
+    "test:run": "npm run build && node --test dist/tests/**/*.test.js",
+    "install:global": "npm run build && npm link",
+    "uninstall:global": "npm unlink -g drudge"
   },
   "keywords": ["drudge", "heartbeat", "tmux", "proxy"],
   "license": "MIT",
