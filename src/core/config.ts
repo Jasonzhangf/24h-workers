@@ -1,175 +1,187 @@
 /**
  * Heartbeat Config Module
- * 配置管理，解析与默认值
+ * 配置管理
  * 唯一真源：所有配置解析
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
-export interface ProxyConfig {
-  enabled: boolean;
-  anthropicPort: number;
-  openaiPort: number;
-  geminiPort: number;
-}
-
-export interface FinishReasonConfig {
-  triggerOn: string[];
+export interface HeartbeatProject {
+  path: string;
+  heartbeatIntervalMs: number;
+  promptFile: string;
 }
 
 export interface HeartbeatConfig {
-  tickMs: number;
-  promptFile: string;
+  version: string;
+  projects: HeartbeatProject[];
+  default: {
+    heartbeatIntervalMs: number;
+    promptFile: string;
+  };
+  // Runtime config (not from file)
+  tickMs?: number;
+  promptFile?: string;
   stateDir?: string;
-  proxy: ProxyConfig;
-  finishReason: FinishReasonConfig;
+  proxy?: {
+    enabled: boolean;
+    anthropicPort?: number;
+    openaiPort?: number;
+    geminiPort?: number;
+  };
+  finishReason?: {
+    triggerOn: string[];
+  };
 }
 
 const DEFAULT_CONFIG: HeartbeatConfig = {
-  tickMs: 15 * 60_000, // 15 分钟
-  promptFile: 'HEARTBEAT.md',
-  proxy: {
-    enabled: false,
-    anthropicPort: 8081,
-    openaiPort: 8082,
-    geminiPort: 8083
-  },
-  finishReason: {
-    triggerOn: ['stop']
+  version: '1.0.0',
+  projects: [],
+  default: {
+    heartbeatIntervalMs: 15 * 60 * 1000, // 15 分钟
+    promptFile: '~/.drudge/HEARTBEAT.md'
   }
 };
 
-function normalizePositiveInt(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return Math.floor(value);
+const CONFIG_PATH = path.join(os.homedir(), '.drudge', 'config.json');
+
+/**
+ * 展开路径中的 ~
+ */
+function expandPath(p: string): string {
+  if (p.startsWith('~/')) {
+    return path.join(os.homedir(), p.slice(2));
   }
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return fallback;
+  return p;
 }
 
-function normalizeString(value: unknown, fallback: string): string {
-  if (typeof value === 'string' && value.trim()) {
-    return value.trim();
-  }
-  return fallback;
+/**
+ * 获取默认状态目录
+ */
+export function getDefaultStateDir(): string {
+  return path.join(os.homedir(), '.drudge');
 }
 
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const lower = value.toLowerCase().trim();
-    if (lower === 'true' || lower === '1' || lower === 'yes') return true;
-    if (lower === 'false' || lower === '0' || lower === 'no') return false;
-  }
-  return fallback;
-}
+/**
+ * 解析配置（兼容旧接口）
+ */
+export function resolveConfig(options?: { configPath?: string; cwd?: string }): HeartbeatConfig {
+  const cwd = options?.cwd || process.cwd();
+  const projectConfig = getProjectConfig(cwd);
 
-function normalizeStringArray(value: unknown, fallback: string[]): string[] {
-  if (Array.isArray(value)) {
-    const result = value
-      .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
-      .map(item => item.trim());
-    return result.length > 0 ? result : fallback;
-  }
-  return fallback;
-}
-
-function normalizeProxyConfig(value: unknown): ProxyConfig {
-  if (!value || typeof value !== 'object') {
-    return DEFAULT_CONFIG.proxy;
-  }
-  
-  const cfg = value as Record<string, unknown>;
   return {
-    enabled: normalizeBoolean(cfg.enabled, false),
-    anthropicPort: normalizePositiveInt(cfg.anthropicPort, DEFAULT_CONFIG.proxy.anthropicPort),
-    openaiPort: normalizePositiveInt(cfg.openaiPort, DEFAULT_CONFIG.proxy.openaiPort),
-    geminiPort: normalizePositiveInt(cfg.geminiPort, DEFAULT_CONFIG.proxy.geminiPort)
+    ...DEFAULT_CONFIG,
+    tickMs: projectConfig.heartbeatIntervalMs,
+    promptFile: projectConfig.promptFile,
+    stateDir: getDefaultStateDir(),
+    proxy: { enabled: false },
+    finishReason: { triggerOn: ['stop'] }
   };
 }
 
-function normalizeFinishReasonConfig(value: unknown): FinishReasonConfig {
-  if (!value || typeof value !== 'object') {
-    return DEFAULT_CONFIG.finishReason;
-  }
-  
-  const cfg = value as Record<string, unknown>;
-  return {
-    triggerOn: normalizeStringArray(cfg.triggerOn, DEFAULT_CONFIG.finishReason.triggerOn)
-  };
-}
-
-function applyEnvOverrides(config: HeartbeatConfig): HeartbeatConfig {
-  const envTickMs = process.env.HEARTBEAT_TICK_MS || process.env.HB_TICK_MS;
-  const envPromptFile = process.env.HEARTBEAT_PROMPT_FILE || process.env.HB_PROMPT_FILE;
-  const envStateDir = process.env.HEARTBEAT_STATE_DIR || process.env.HB_STATE_DIR;
-  
-  return {
-    ...config,
-    tickMs: envTickMs ? normalizePositiveInt(envTickMs, config.tickMs) : config.tickMs,
-    promptFile: envPromptFile ? normalizeString(envPromptFile, config.promptFile) : config.promptFile,
-    stateDir: envStateDir ? normalizeString(envStateDir, config.stateDir || '') : config.stateDir
-  };
-}
-
-function loadConfigFile(configPath: string): Record<string, unknown> | null {
+/**
+ * 读取配置文件
+ */
+function readConfigFile(): HeartbeatConfig | null {
   try {
-    const content = fs.readFileSync(configPath, 'utf8');
-    return JSON.parse(content);
+    const content = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const config = JSON.parse(content) as HeartbeatConfig;
+
+    // 展开路径
+    if (config.default.promptFile) {
+      config.default.promptFile = expandPath(config.default.promptFile);
+    }
+
+    for (const project of config.projects) {
+      if (project.promptFile) {
+        project.promptFile = expandPath(project.promptFile);
+      }
+    }
+
+    return config;
   } catch {
     return null;
   }
 }
 
-function findConfigFile(startDir?: string): string | undefined {
-  const cwd = startDir || process.cwd();
-  
-  const candidates = [
-    path.join(cwd, 'heartbeat.config.json'),
-    path.join(cwd, 'config.local.json'),
-    path.join(cwd, 'config.json')
-  ];
-  
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
+/**
+ * 获取项目配置
+ */
+export function getProjectConfig(cwd: string): {
+  heartbeatIntervalMs: number;
+  promptFile: string;
+} {
+  const config = readConfigFile();
+
+  // 匹配项目
+  const project = config?.projects.find(p => cwd.startsWith(p.path));
+
+  if (project) {
+    return {
+      heartbeatIntervalMs: project.heartbeatIntervalMs,
+      promptFile: project.promptFile
+    };
   }
-  
-  return undefined;
+
+  // 使用默认配置
+  const defaultConfig = config?.default || DEFAULT_CONFIG.default;
+  return {
+    heartbeatIntervalMs: defaultConfig.heartbeatIntervalMs,
+    promptFile: expandPath(defaultConfig.promptFile)
+  };
 }
 
-export function resolveConfig(options?: {
-  configPath?: string;
-  cwd?: string;
-}): HeartbeatConfig {
-  let config = { ...DEFAULT_CONFIG };
-  
-  const configPath = options?.configPath || findConfigFile(options?.cwd);
-  if (configPath) {
-    const fileConfig = loadConfigFile(configPath);
-    if (fileConfig) {
-      config = {
-        tickMs: normalizePositiveInt(fileConfig.tickMs, config.tickMs),
-        promptFile: normalizeString(fileConfig.promptFile, config.promptFile),
-        stateDir: typeof fileConfig.stateDir === 'string' ? fileConfig.stateDir : config.stateDir,
-        proxy: normalizeProxyConfig(fileConfig.proxy),
-        finishReason: normalizeFinishReasonConfig(fileConfig.finishReason)
-      };
-    }
+/**
+ * 获取心跳间隔
+ */
+export function getHeartbeatInterval(cwd: string): number {
+  const config = getProjectConfig(cwd);
+
+  // 环境变量覆盖
+  if (process.env.DRUDGE_HEARTBEAT_INTERVAL) {
+    return parseInt(process.env.DRUDGE_HEARTBEAT_INTERVAL, 10);
   }
-  
-  config = applyEnvOverrides(config);
-  
-  return config;
+
+  return config.heartbeatIntervalMs;
 }
 
-export function getDefaultStateDir(): string {
-  return path.join(process.env.HOME || '~', '.heartbeat');
+/**
+ * 获取提示词文件路径
+ */
+export function getPromptFile(cwd: string): string {
+  const config = getProjectConfig(cwd);
+  return config.promptFile;
+}
+
+/**
+ * 获取项目名称
+ */
+export function getProjectName(cwd: string): string {
+  const config = readConfigFile();
+  const project = config?.projects.find(p => cwd.startsWith(p.path));
+
+  if (project) {
+    return path.basename(project.path);
+  }
+
+  // 使用当前目录名
+  return path.basename(cwd);
+}
+
+/**
+ * 生成默认配置文件
+ */
+export function generateDefaultConfig(): void {
+  const configDir = path.join(os.homedir(), '.drudge');
+  const configFile = path.join(configDir, 'config.json');
+
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+
+  if (!fs.existsSync(configFile)) {
+    fs.writeFileSync(configFile, JSON.stringify(DEFAULT_CONFIG, null, 2));
+  }
 }

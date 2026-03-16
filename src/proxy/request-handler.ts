@@ -109,10 +109,11 @@ export async function handleProxyRequest(
   
   // Extract finish reason
   const protocol = detectProtocol(request.path);
+  const triggerOn = context.config.finishReason?.triggerOn || ['stop'];
   const finishReasonResult = extractFinishReason(
     body,
     protocol,
-    context.config.finishReason.triggerOn
+    triggerOn
   );
   
   // Trigger heartbeat if needed

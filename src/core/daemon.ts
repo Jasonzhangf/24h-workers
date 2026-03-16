@@ -9,7 +9,6 @@ import { triggerHeartbeat, shouldTrigger } from './trigger.js';
 import { 
   listEnabledSessions, 
   loadSession, 
-  saveSession, 
   updateSession 
 } from './state-store.js';
 import type { HeartbeatConfig } from './config.js';
@@ -28,7 +27,11 @@ const daemonState: DaemonState = {
  * 运行一次 tick
  */
 async function runTick(config: HeartbeatConfig): Promise<void> {
-  const sessions = listEnabledSessions({ stateDir: config.stateDir });
+  const stateDir = config.stateDir || '~/.drudge';
+  const tickMs = config.tickMs || 15 * 60 * 1000;
+  const promptFile = config.promptFile || '~/.drudge/HEARTBEAT.md';
+
+  const sessions = listEnabledSessions({ stateDir });
   
   for (const session of sessions) {
     try {
@@ -39,13 +42,13 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
       }
       
       // 检查是否需要触发
-      if (!shouldTrigger(session, config.tickMs)) {
+      if (!shouldTrigger(session, tickMs)) {
         continue;
       }
       
       // 触发 heartbeat
       const result = await triggerHeartbeat(session, {
-        promptFile: config.promptFile
+        promptFile
       });
       
       if (result.ok) {
@@ -54,12 +57,12 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
           triggerCount: session.triggerCount + 1,
           lastTriggeredAtMs: Date.now(),
           lastError: undefined
-        }, { stateDir: config.stateDir });
+        }, { stateDir });
       } else {
         // 更新失败状态
         updateSession(session.sessionId, {
           lastError: result.reason
-        }, { stateDir: config.stateDir });
+        }, { stateDir });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -76,10 +79,11 @@ async function disableSession(
   reason: string,
   config: HeartbeatConfig
 ): Promise<void> {
+  const stateDir = config.stateDir || '~/.drudge';
   updateSession(sessionId, {
     enabled: false,
     lastError: reason
-  }, { stateDir: config.stateDir });
+  }, { stateDir });
 }
 
 /**
@@ -94,8 +98,10 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   
   daemonState.started = true;
   daemonState.config = config;
+
+  const tickMs = config.tickMs || 15 * 60 * 1000;
   
-  console.log(`[Drudge] Starting daemon with tick=${config.tickMs}ms`);
+  console.log(`[Drudge] Starting daemon with tick=${tickMs}ms`);
   
   // 首次立即执行
   await runTick(config);
@@ -106,7 +112,7 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
       return;
     }
     await runTick(daemonState.config);
-  }, config.tickMs);
+  }, tickMs);
   
   // 允许进程退出时自动停止
   daemonState.timer.unref?.();
@@ -155,7 +161,10 @@ export async function triggerOnce(
   sessionId: string,
   config: HeartbeatConfig
 ): Promise<{ ok: boolean; reason?: string }> {
-  const session = loadSession(sessionId, { stateDir: config.stateDir });
+  const stateDir = config.stateDir || '~/.drudge';
+  const promptFile = config.promptFile || '~/.drudge/HEARTBEAT.md';
+
+  const session = loadSession(sessionId, { stateDir });
   
   if (!session) {
     return { ok: false, reason: 'session_not_found' };
@@ -170,7 +179,7 @@ export async function triggerOnce(
   }
   
   const result = await triggerHeartbeat(session, {
-    promptFile: config.promptFile
+    promptFile
   });
   
   if (result.ok) {
@@ -178,7 +187,7 @@ export async function triggerOnce(
       triggerCount: session.triggerCount + 1,
       lastTriggeredAtMs: Date.now(),
       lastError: undefined
-    }, { stateDir: config.stateDir });
+    }, { stateDir });
   }
   
   return result;

@@ -130,11 +130,16 @@ export async function startProxyServers(
 ): Promise<void> {
   const { config } = options;
   
-  if (!config.proxy.enabled) {
+  const proxy = config.proxy;
+  if (!proxy || !proxy.enabled) {
     console.log('[Proxy] Proxy disabled in config');
     return;
   }
   
+  const anthropicPort = proxy.anthropicPort || 8081;
+  const openaiPort = proxy.openaiPort || 8082;
+  const geminiPort = proxy.geminiPort || 8083;
+
   const servers: Array<{
     protocol: string;
     port: number;
@@ -142,17 +147,17 @@ export async function startProxyServers(
   }> = [
     {
       protocol: 'anthropic',
-      port: config.proxy.anthropicPort,
+      port: anthropicPort,
       upstream: options.anthropicUpstream || 'https://api.anthropic.com'
     },
     {
       protocol: 'openai',
-      port: config.proxy.openaiPort,
+      port: openaiPort,
       upstream: options.openaiUpstream || 'https://api.openai.com'
     },
     {
       protocol: 'gemini',
-      port: config.proxy.geminiPort,
+      port: geminiPort,
       upstream: options.geminiUpstream || 'https://generativelanguage.googleapis.com'
     }
   ];
