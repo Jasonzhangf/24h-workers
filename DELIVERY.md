@@ -28,6 +28,41 @@
 
 ---
 
+## [2026-03-17 07:10] - 添加日志功能
+
+### 完成内容
+
+**调试增强**: 添加文件日志功能
+
+**问题**:
+- 用户遇到 `can't find session: routecodex` 错误
+- 无法诊断问题原因
+
+**修复内容**:
+1. **新增 logToFile 函数**:
+   - 日志文件路径: `~/.drudge/drudge.log`
+   - 记录关键错误信息
+   - 避免污染终端输出
+
+2. **添加日志记录点**:
+   - Session 名称生成失败
+   - Tmux session 创建失败
+   - Respawn-pane 失败
+   - Send-keys 失败
+
+3. **使用方式**:
+   ```bash
+   # 查看日志
+   cat ~/.drudge/drudge.log
+
+   # 实时监控日志
+   tail -f ~/.drudge/drudge.log
+   ```
+
+**版本**: v0.1.2
+
+---
+
 ## [2026-03-17 06:46] - 新增 cmdClaude 测试覆盖
 
 ### 完成内容

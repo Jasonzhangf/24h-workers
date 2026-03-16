@@ -30,6 +30,20 @@ import { buildTimeTagLine } from '../clock/time-tag.js';
 
 const VERSION = '0.1.2';
 
+// Simple file logger (append to ~/.drudge/drudge.log)
+function logToFile(message: string): void {
+  const logDir = path.join(os.homedir(), '.drudge');
+  const logPath = path.join(logDir, 'drudge.log');
+  const timestamp = new Date().toISOString();
+  const logLine = `[${timestamp}] ${message}\n`;
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    fs.appendFileSync(logPath, logLine, 'utf8');
+  } catch { /* ignore logging errors */ }
+}
+
 interface CliOptions {
   session?: string;
   json?: boolean;
@@ -58,15 +72,18 @@ function createManagedTmuxSession(args: {
   }
 
   if (attempt >= 6) {
+    logToFile(`Could not find available session name after 6 attempts`);
     return null;
   }
 
-  try {
-    const result = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], { encoding: 'utf8' });
-    if (result.status !== 0) {
+ try {
+   const result = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], { encoding: 'utf8' });
+   if (result.status !== 0) {
+      logToFile(`Failed to create tmux session: ${result.stderr || result.stdout || 'Unknown error'}`);
       return null;
     }
   } catch {
+    logToFile(`Failed to create tmux session: exception thrown`);
     return null;
   }
 
@@ -148,12 +165,13 @@ function launchCommandInTmuxPane(args: {
 
   const shellCommand = `${fullCommand}; __exit=$?; exit $__exit`;
 
-  // 使用 respawn-pane 启动命令
+ // 使用 respawn-pane 启动命令
   try {
     const respawn = spawnSync('tmux', ['respawn-pane', '-k', '-t', tmuxTarget, shellCommand], { encoding: 'utf8' });
     if (respawn.status === 0) {
       return true;
     }
+    logToFile(`respawn-pane failed: ${respawn.stderr || respawn.stdout || 'Unknown error'}`);
   } catch { /* fallback */ }
 
   // 回退到 send-keys
@@ -162,11 +180,13 @@ function launchCommandInTmuxPane(args: {
     spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'C-u'], { encoding: 'utf8' });
     const literal = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', '--', shellCommand], { encoding: 'utf8' });
     if (literal.status !== 0) {
+      logToFile(`send-keys failed: ${literal.stderr || literal.stdout || 'Unknown error'}`);
       return false;
     }
     spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter'], { encoding: 'utf8' });
     return true;
   } catch {
+    logToFile(`send-keys exception thrown`);
     return false;
   }
 }
