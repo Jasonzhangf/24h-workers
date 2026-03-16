@@ -28,6 +28,50 @@
 
 ---
 
+## [2026-03-17 06:45] - 提取 attach helper 为独立模块并添加测试
+
+### 完成内容
+
+**代码重构**: Review 反馈修正 - 唯一真源与测试覆盖
+
+**问题**:
+- `attachToExistingTmuxSession` 函数在 `src/cli/index.ts` 中定义，不是共享 helper
+- `cmdCodex`/`cmdClaude` 中仍有 `spawnSync('tmux has-session')` 调用
+- 缺少测试覆盖唯一真源使用
+
+**修复内容**:
+1. **提取 attach helper 为独立模块**:
+   - 新建 `src/tmux/attach.ts`
+   - 将 `attachToExistingTmuxSession` 函数移到该模块
+   - 导出该函数供 CLI 使用
+
+2. **移除所有 spawnSync('tmux has-session') 调用**:
+   - 在 `cmdCodex`/`cmdClaude` 中使用 `isTmuxSessionAlive()` 代替
+   - 在 `createManagedTmuxSession` 中使用 `isTmuxSessionAlive()` 代替
+
+3. **确保唯一真源使用**:
+   - `isTmuxSessionAlive` from `tmux/session-probe` - session 存活检测
+   - `attachToExistingTmuxSession` from `tmux/attach` - attach 操作
+
+4. **添加测试覆盖**:
+   - 新建 `tests/cli/cmdCodex.test.ts`
+   - 验证不直接调用 `spawnSync("tmux has-session")`
+   - 验证导入语句正确
+   - 验证唯一真源使用
+
+5. **测试结果**:
+   ```
+   ✔ should use isTmuxSessionAlive (唯一真源) when session exists
+   ✔ should NOT use spawnSync("tmux has-session") directly
+   ✔ should import attachToExistingTmuxSession from tmux/attach module
+   ✔ should import isTmuxSessionAlive from tmux/session-probe module
+   ```
+   4/4 tests passed
+
+**版本**: v0.1.2
+
+---
+
 ## [2026-03-17 06:30] - 代码重构：使用唯一真源函数
 
 ### 完成内容

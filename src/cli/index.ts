@@ -24,6 +24,7 @@ import {
   loadSession
 } from '../core/state-store.js';
 import { isTmuxSessionAlive } from '../tmux/session-probe.js';
+import { attachToExistingTmuxSession } from '../tmux/attach.js';
 import { injectTmuxText } from '../tmux/injector.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
 
@@ -44,12 +45,11 @@ function createManagedTmuxSession(args: {
   const { cwd, sessionName: preferredName } = args;
   const baseName = preferredName || path.basename(cwd);
 
-  // 生成唯一 session 名称
+ // 生成唯一 session 名称
   let sessionName = baseName;
   let attempt = 0;
   while (attempt < 6) {
-    const checkResult = spawnSync('tmux', ['has-session', '-t', sessionName], { encoding: 'utf8' });
-    if (checkResult.status !== 0) {
+    if (!isTmuxSessionAlive(sessionName)) {
       // session 不存在，可以使用
       break;
     }
@@ -264,25 +264,6 @@ function cmdInit(options: CliOptions): void {
   console.log(`Drudge initialized for: ${projectName}`);
 }
 
-
-/**
- * Attach 到现有的 tmux session
- */
-function attachToExistingTmuxSession(args: {
-  sessionName: string;
-  envOverrides: Record<string, string>;
-  cwd: string;
-}): void {
-  const { sessionName, envOverrides, cwd } = args;
-  const tmux = spawn('tmux', ['attach-session', '-t', sessionName], {
-    stdio: 'inherit',
-    env: { ...process.env, ...envOverrides },
-    cwd
-  });
-  tmux.on('exit', (code) => {
-    process.exit(code || 0);
-  });
-}
 
 /**
  * 启动 codex
