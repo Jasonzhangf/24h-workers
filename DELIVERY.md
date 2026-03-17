@@ -1,5 +1,37 @@
 # 交付记录
 
+## [2026-03-17 08:20] - tmux 注入独立单测
+
+### 完成内容
+
+**测试增强**: 按要求新增独立 tmux 注入测试（不影响生产 session）
+
+**修复内容**:
+1. **注入逻辑对齐 routecodex**:
+   - 在 `injectTmuxText` 中增加 `C-u` 清空当前输入行
+
+2. **新增独立注入单测**:
+   - 新建 `tests/tmux/injector.test.ts`
+   - 自建唯一 tmux session（`drudge-inject-test-<timestamp>`）
+   - 在该 session 中运行 `cat`，确保注入文本可回显
+   - 使用 `capture-pane` 验证注入文本存在
+   - 测试结束后仅清理该 session
+
+**测试结果**:
+```
+▶ tmux injector
+  ✔ should inject text into isolated tmux session
+✔ tmux injector
+ℹ tests 1
+ℹ pass 1
+```
+
+**说明**:
+- 未触碰用户运行中的 tmux session
+- 仅使用独立 session 进行注入测试
+
+---
+
 ## [2026-03-17 07:50] - 参考 routecodex 优化命令构建
 
 ### 完成内容

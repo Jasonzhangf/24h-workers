@@ -111,6 +111,12 @@ export async function injectTmuxText(input: {
       encoding: 'utf8',
       timeout: 500
     });
+
+    // 清空当前输入行，避免拼接残留命令（参考 routecodex）
+    spawnSync('tmux', ['send-keys', '-t', resolvedTarget.target, 'C-u'], {
+      encoding: 'utf8',
+      timeout: 500
+    });
     
     // 发送文本（字面量）
     const literalResult = spawnSync('tmux', ['send-keys', '-t', resolvedTarget.target, '-l', '--', text], {
