@@ -6,10 +6,11 @@
 
 import { isTmuxSessionAlive } from '../tmux/session-probe.js';
 import { triggerHeartbeat, shouldTrigger } from './trigger.js';
-import { 
-  listEnabledSessions, 
-  loadSession, 
-  updateSession 
+import {
+  listEnabledSessions,
+  loadSession,
+  updateSession,
+  deleteSession
 } from './state-store.js';
 import type { HeartbeatConfig } from './config.js';
 
@@ -30,6 +31,7 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
   const stateDir = config.stateDir || '~/.drudge';
   const tickMs = config.tickMs || 15 * 60 * 1000;
   const promptFile = config.promptFile || '~/.drudge/HEARTBEAT.md';
+  const maxNotFound = 3;
 
   const sessions = listEnabledSessions({ stateDir });
   
@@ -37,7 +39,15 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
     try {
       // 检查 session 是否存活
       if (!isTmuxSessionAlive(session.sessionId)) {
-        await disableSession(session.sessionId, 'session_not_found', config);
+        const nextNotFound = (session.notFoundCount ?? 0) + 1;
+        if (nextNotFound >= maxNotFound) {
+          deleteSession(session.sessionId, { stateDir });
+          continue;
+        }
+        updateSession(session.sessionId, {
+          lastError: 'session_not_found',
+          notFoundCount: nextNotFound
+        }, { stateDir });
         continue;
       }
       
@@ -56,13 +66,28 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
         updateSession(session.sessionId, {
           triggerCount: session.triggerCount + 1,
           lastTriggeredAtMs: Date.now(),
-          lastError: undefined
+          lastError: undefined,
+          notFoundCount: 0
         }, { stateDir });
       } else {
-        // 更新失败状态
-        updateSession(session.sessionId, {
-          lastError: result.reason
-        }, { stateDir });
+        const isNotFound = result.reason === 'tmux_session_not_found' || result.reason === 'session_not_found';
+        if (isNotFound) {
+          const nextNotFound = (session.notFoundCount ?? 0) + 1;
+          if (nextNotFound >= maxNotFound) {
+            deleteSession(session.sessionId, { stateDir });
+            continue;
+          }
+          updateSession(session.sessionId, {
+            lastError: result.reason,
+            notFoundCount: nextNotFound
+          }, { stateDir });
+        } else {
+          // 更新失败状态
+          updateSession(session.sessionId, {
+            lastError: result.reason,
+            notFoundCount: 0
+          }, { stateDir });
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -1,5 +1,26 @@
 # 交付记录
 
+## [2026-03-17 09:30] - 连续三次 session_not_found 自动清理
+
+### 完成内容
+
+**问题**: session 连续找不到会导致残留状态文件
+
+**修复**:
+1. **增加 notFoundCount 计数**
+   - `HeartbeatSession` 增加 `notFoundCount`
+   - 成功触发或非 not_found 错误时重置为 0
+
+2. **连续 3 次找不到即清理**
+   - `daemon` 中遇到 `session_not_found / tmux_session_not_found` 连续 3 次
+   - 自动删除 session 文件，避免残留
+
+**影响**:
+- 避免僵尸 session 文件累积
+- 不影响正常存活 session
+
+---
+
 ## [2026-03-17 09:05] - 修复已有 session 参数被忽略
 
 ### 完成内容

@@ -19,6 +19,7 @@ export interface HeartbeatSession {
   lastSkippedAtMs?: number;
   lastSkippedReason?: string;
   lastError?: string;
+  notFoundCount?: number;
 }
 
 const SESSION_VERSION = 1;
@@ -101,7 +102,8 @@ function coerceSession(raw: unknown, fallbackId: string): HeartbeatSession {
     lastTriggeredAtMs: normalizePositiveInt(record.lastTriggeredAtMs) || undefined,
     lastSkippedAtMs: normalizePositiveInt(record.lastSkippedAtMs) || undefined,
     lastSkippedReason: normalizeOptionalString(record.lastSkippedReason),
-    lastError: normalizeOptionalString(record.lastError)
+    lastError: normalizeOptionalString(record.lastError),
+    notFoundCount: normalizePositiveInt(record.notFoundCount) || undefined
   };
 }
 
@@ -116,7 +118,8 @@ function createDefaultSession(sessionId: string): HeartbeatSession {
     enabled: true,
     createdAtMs: now,
     updatedAtMs: now,
-    triggerCount: 0
+    triggerCount: 0,
+    notFoundCount: 0
   };
 }
 
@@ -296,4 +299,22 @@ export function updateSession(
   Object.assign(session, patch);
   saveSession(session, options);
   return session;
+}
+
+/**
+ * 删除 session 文件
+ */
+export function deleteSession(sessionId: string, options?: { stateDir?: string }): void {
+  const id = normalizeSessionId(sessionId);
+  if (!id) {
+    return;
+  }
+  const filePath = resolveSessionFilePath(id, options?.stateDir);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch {
+    // ignore
+  }
 }
