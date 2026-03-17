@@ -23,12 +23,12 @@ import {
   listSessions,
   loadSession
 } from '../core/state-store.js';
-import { isTmuxSessionAlive } from '../tmux/session-probe.js';
+import { isTmuxSessionAlive, resolveTmuxActiveTarget } from '../tmux/session-probe.js';
 import { attachToExistingTmuxSession } from '../tmux/attach.js';
 import { injectTmuxText } from '../tmux/injector.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 
 // Simple file logger (append to ~/.drudge/drudge.log)
 function logToFile(message: string): void {
@@ -169,6 +169,8 @@ function launchCommandInTmuxPane(args: {
   // 构建完整命令（参考 routecodex）
   const commandBody = `cd -- ${shellQuote(cwd)} || exit 1; ${baseCommand}`;
   const shellCommand = `${commandBody}; __exit=$?; exit "$__exit"`;
+  logToFile(`launchCommandInTmuxPane: command=${command} args=${JSON.stringify(commandArgs)}`);
+  logToFile(`launchCommandInTmuxPane: shellCommand=${shellCommand}`);
 
  // 使用 respawn-pane 启动命令
  try {
@@ -297,6 +299,7 @@ async function cmdCodex(args: string[]): Promise<void> {
   const cwd = process.cwd();
   const projectName = getProjectName(cwd);
   logToFile(`cmdCodex called: projectName=${projectName}, cwd=${cwd}`);
+  logToFile(`cmdCodex args: ${JSON.stringify(args)}`);
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
@@ -346,7 +349,21 @@ async function cmdCodex(args: string[]): Promise<void> {
   const sessionAlreadyExists = isTmuxSessionAlive(projectName);
   logToFile(`cmdCodex: sessionAlreadyExists=${sessionAlreadyExists}, projectName=${projectName}`);
 
- if (sessionAlreadyExists) {
+  if (sessionAlreadyExists) {
+    // 如果传入了参数，优先在已有 session 中重新启动命令
+    if (args.length > 0) {
+      const target = resolveTmuxActiveTarget(projectName) || `${projectName}:0.0`;
+      const relaunched = launchCommandInTmuxPane({
+        tmuxTarget: target,
+        cwd,
+        command: 'codex',
+        commandArgs: args,
+        env: envOverrides
+      });
+      if (!relaunched) {
+        printError('Failed to launch codex in existing tmux session');
+      }
+    }
     attachToExistingTmuxSession({
       sessionName: projectName,
       envOverrides,
@@ -394,6 +411,7 @@ async function cmdCodex(args: string[]): Promise<void> {
 async function cmdClaude(args: string[]): Promise<void> {
   const cwd = process.cwd();
   const projectName = getProjectName(cwd);
+  logToFile(`cmdClaude args: ${JSON.stringify(args)}`);
   const heartbeatInterval = getHeartbeatInterval(cwd);
   const promptFile = getPromptFile(cwd);
 
@@ -437,10 +455,23 @@ async function cmdClaude(args: string[]): Promise<void> {
     return;
   }
 
- // 不在 tmux 中，创建受管理的 tmux session
+  // 不在 tmux 中，创建受管理的 tmux session
   const sessionAlreadyExists = isTmuxSessionAlive(projectName);
 
   if (sessionAlreadyExists) {
+    if (args.length > 0) {
+      const target = resolveTmuxActiveTarget(projectName) || `${projectName}:0.0`;
+      const relaunched = launchCommandInTmuxPane({
+        tmuxTarget: target,
+        cwd,
+        command: 'claude',
+        commandArgs: args,
+        env: envOverrides
+      });
+      if (!relaunched) {
+        printError('Failed to launch claude in existing tmux session');
+      }
+    }
     attachToExistingTmuxSession({
       sessionName: projectName,
       envOverrides,

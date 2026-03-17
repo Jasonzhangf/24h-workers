@@ -127,3 +127,39 @@ export function resolveTmuxWorkingDirectory(sessionId: string): string | undefin
     return undefined;
   }
 }
+
+/**
+ * 获取 tmux session 当前活跃 pane target
+ * 唯一真源：所有 session active target 获取
+ */
+export function resolveTmuxActiveTarget(sessionId: string): string | undefined {
+  const target = normalizeTmuxSessionTarget(sessionId);
+  if (!target) {
+    return undefined;
+  }
+
+  if (!isTmuxAvailable()) {
+    return undefined;
+  }
+
+  if (!isTmuxSessionAlive(target)) {
+    return undefined;
+  }
+
+  try {
+    const result = spawnSync(
+      'tmux',
+      ['display-message', '-p', '-t', target, '#S:#I.#P'],
+      { encoding: 'utf8', timeout: 1000 }
+    );
+
+    if (result.status !== 0) {
+      return undefined;
+    }
+
+    const candidate = String(result.stdout || '').trim();
+    return candidate || undefined;
+  } catch {
+    return undefined;
+  }
+}

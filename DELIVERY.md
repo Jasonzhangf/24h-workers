@@ -1,5 +1,25 @@
 # 交付记录
 
+## [2026-03-17 09:05] - 修复已有 session 参数被忽略
+
+### 完成内容
+
+**问题**: 已存在 tmux session 时，`drudge codex/claude` 仅 attach，新增参数未生效
+
+**修复**:
+1. **新增 active target 解析**
+   - 在 `tmux/session-probe.ts` 中新增 `resolveTmuxActiveTarget()`
+
+2. **已有 session 时重启命令**
+   - 当传入参数且 session 已存在时，先在 active pane 中重新启动命令
+   - 然后再 attach 到 session
+
+**影响**:
+- 多参数启动时不会被忽略
+- 保留无参数时的纯 attach 行为
+
+---
+
 ## [2026-03-17 08:20] - tmux 注入独立单测
 
 ### 完成内容
