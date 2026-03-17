@@ -152,25 +152,26 @@ function launchCommandInTmuxPane(args: {
   commandArgs: string[];
   env?: Record<string, string>;
 }): boolean {
-  const { tmuxTarget, cwd, command, commandArgs, env } = args;
+ const { tmuxTarget, cwd, command, commandArgs, env } = args;
 
-  // 构建环境变量前缀
-  const envPrefix = env
-    ? Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`).join(' ')
-    : '';
 
-  // 构建完整命令
-  const fullCommand = [
-    `cd -- ${shellQuote(cwd)} || exit 1`,
-    envPrefix ? `env ${envPrefix}` : '',
-    command,
-    ...commandArgs.map(a => a.includes(' ') || a.includes("'") ? shellQuote(a) : a)
-  ].filter(Boolean).join(' ');
 
-  const shellCommand = `${fullCommand}; __exit=$?; exit $__exit`;
+  // 构建环境变量令牌（参考 routecodex）
+  const envTokens = [
+    ...(env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : [])
+  ];
+
+  // 构建基础命令（参考 routecodex）
+  const baseCommand = ['env', ...envTokens, command, ...commandArgs]
+    .map((token) => shellQuote(token))
+    .join(' ');
+
+  // 构建完整命令（参考 routecodex）
+  const commandBody = `cd -- ${shellQuote(cwd)} || exit 1; ${baseCommand}`;
+  const shellCommand = `${commandBody}; __exit=$?; exit "$__exit"`;
 
  // 使用 respawn-pane 启动命令
-  try {
+ try {
     const respawn = spawnSync('tmux', ['respawn-pane', '-k', '-t', tmuxTarget, shellCommand], { encoding: 'utf8' });
     if (respawn.status === 0) {
       return true;

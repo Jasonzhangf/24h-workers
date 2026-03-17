@@ -1,5 +1,50 @@
 # 交付记录
 
+## [2026-03-17 07:50] - 参考 routecodex 优化命令构建
+
+### 完成内容
+
+**代码优化**: 参考 ~/github/routecodex 的实现
+
+**问题**:
+- `drudge codex` 命令构建逻辑与 routecodex 不一致
+- 可能导致命令执行失败或行为异常
+
+**修复内容**:
+1. **优化命令构建**:
+   - 参考 routecodex 的 `launcher-kernel.ts` 实现
+   - 修改 `launchCommandInTmuxPane` 函数的命令构建逻辑
+   - 使用 `exit "$__exit"` 而不是 `exit $__exit`（加引号）
+   - 简化环境变量处理逻辑
+
+2. **参考 routecodex 的实现**:
+   - 命令结构：`cd -- ${cwd} || exit 1; ${baseCommand}; __exit=$?; exit "$__exit"`
+   - 基础命令包含环境变量：`env ${KEY}=${VALUE} ${command} ${args}`
+   - 所有参数使用 `shellQuote` 包裹
+
+**版本**: v0.1.2
+
+**使用说明**:
+```bash
+# 1. 编译并安装
+npm run build
+npm run install:global
+
+# 2. 运行 drudge codex
+cd ~/github/routecodex
+drudge codex
+
+# 3. 查看日志
+cat ~/.drudge/drudge.log
+```
+
+**注意**:
+- 未运行测试（按用户要求）
+- 请在实际终端中运行 `drudge codex` 进行验证
+- 如有问题请查看日志文件 `~/.drudge/drudge.log`
+
+---
+
 ## [2026-03-17 05:58] - 修复 session 处理逻辑
 
 ### 完成内容
