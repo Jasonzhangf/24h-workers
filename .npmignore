@@ -1,0 +1,17 @@
+# Privacy / temp
+CACHE.md
+.beads/
+*.bak
+*.log
+*.tmp
+*.swp
+.DS_Store
+*.tgz
+
+# Tests
+tests/
+
+# Local working files
+*.local
+.env
+.env.*

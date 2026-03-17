@@ -1,5 +1,5 @@
 {
-  "name": "drudge",
+  "name": "@jsonstudio/drudge",
   "version": "0.1.2",
   "description": "Independent heartbeat tool with tmux injection and optional proxy mode",
   "type": "module",
@@ -19,6 +19,9 @@
   },
   "keywords": ["drudge", "heartbeat", "tmux", "proxy"],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
