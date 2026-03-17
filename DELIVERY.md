@@ -1,5 +1,27 @@
 # 交付记录
 
+## [2026-03-17 10:20] - CI + Release 自动化
+
+### 完成内容
+
+**CI**:
+- 新增 `.github/workflows/ci.yml`
+- push / PR 到 main 运行：`npm ci` + `npm run build` + `npm test`
+- CI 安装 tmux，覆盖 tmux 注入相关测试
+
+**Release**:
+- 新增 `.github/workflows/release.yml`
+- 触发条件：push tag `v*.*.*`
+- 校验 tag 与 `package.json` 版本一致
+- 构建、打包、发布 npm（使用 `NPM_TOKEN`）
+- 自动创建 GitHub Release 并附带 `*.tgz`
+
+**注意**:
+- 需要在 GitHub Secrets 配置 `NPM_TOKEN`
+- 建议使用 `v{version}` tag 触发发布
+
+---
+
 ## [2026-03-17 09:30] - 连续三次 session_not_found 自动清理
 
 ### 完成内容
