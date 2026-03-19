@@ -112,8 +112,8 @@ drudge trigger -s <session> -m "[Alarm] 立即检查任务状态"
 
 将 skill 放入后，模型可自行执行定时/激活，无需人工手动。
 
-- `~/.codex/skills/drudge/SKILL.md`
-- `~/.codex/skills/drudge-alarm/SKILL.md`
+- `~/.codex/skills/drudge/SKILL.md`（主入口）
+- `~/.codex/skills/drudge-alarm/SKILL.md`（与 drudge 同步）
 
 内容包含完整案例：
 - check / adopt / add / trigger
