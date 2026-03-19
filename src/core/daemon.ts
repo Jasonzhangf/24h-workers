@@ -4,6 +4,8 @@
  * 唯一真源：所有 daemon 启停
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { isTmuxSessionAlive } from '../tmux/session-probe.js';
 import { triggerHeartbeat, shouldTrigger } from './trigger.js';
 import {
@@ -12,6 +14,10 @@ import {
   updateSession,
   deleteSession
 } from './state-store.js';
+import { getProjectConfig } from './config.js';
+import { listAlarms, updateAlarm, removeAlarm } from '../alarm/store.js';
+import { shouldAlarmTrigger } from '../alarm/cron-parser.js';
+import { triggerAlarm } from '../cli/alarm-trigger.js';
 import type { HeartbeatConfig } from './config.js';
 
 export interface DaemonState {
@@ -23,6 +29,122 @@ export interface DaemonState {
 const daemonState: DaemonState = {
   started: false
 };
+
+// PID file path
+function getPidFilePath(): string {
+  const homeDir = process.env.HOME || '~';
+  return path.join(homeDir, '.drudge', 'daemon.pid');
+}
+
+/**
+ * Write PID file
+ */
+function writePidFile(): void {
+  const pidFile = getPidFilePath();
+  const pid = process.pid;
+  try {
+    const dir = path.dirname(pidFile);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(pidFile, String(pid), 'utf-8');
+  } catch (error) {
+    console.error('[Drudge] Failed to write PID file:', error);
+  }
+}
+
+/**
+ * Read PID from PID file
+ */
+function readPidFile(): number | null {
+  const pidFile = getPidFilePath();
+  try {
+    if (!fs.existsSync(pidFile)) {
+      return null;
+    }
+    const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete PID file
+ */
+function deletePidFile(): void {
+  const pidFile = getPidFilePath();
+  try {
+    if (fs.existsSync(pidFile)) {
+      fs.unlinkSync(pidFile);
+    }
+  } catch (error) {
+    console.error('[Drudge] Failed to delete PID file:', error);
+  }
+}
+
+/**
+ * Check if process is running by PID
+ */
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0); // Signal 0 checks if process exists without killing it
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 获取项目心跳间隔
+ */
+function getProjectHeartbeatInterval(sessionId: string): number {
+  try {
+    // 遍历配置文件中的所有项目，找到匹配的项目
+    const configPath = path.join(process.env.HOME || '~', '.drudge', 'config.json');
+    const content = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(content) as HeartbeatConfig;
+    
+    // 查找匹配的项目
+    for (const project of config.projects) {
+      const projectName = path.basename(project.path);
+      if (projectName === sessionId) {
+        return project.heartbeatIntervalMs;
+      }
+    }
+    
+    // 如果没有找到匹配的项目，使用默认值
+    return config.default.heartbeatIntervalMs || 15 * 60 * 1000;
+  } catch {
+    // 如果读取配置文件失败，使用默认值
+    return 15 * 60 * 1000;
+  }
+}
+
+/**
+ * 运行一次闹钟 tick
+ */
+async function runAlarmTick(stateDir: string): Promise<void> {
+  const alarms = listAlarms();
+
+  for (const alarm of alarms) {
+    try {
+      if (!shouldAlarmTrigger(alarm)) {
+        continue;
+      }
+
+      const result = await triggerAlarm(alarm);
+
+      if (result.ok) {
+      } else {
+        console.error(`[Drudge] Alarm "${alarm.id}" trigger failed: ${result.error}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Drudge] Error processing alarm ${alarm.id}:`, message);
+    }
+  }
+}
 
 /**
  * 运行一次 tick
@@ -51,8 +173,11 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
         continue;
       }
       
-      // 检查是否需要触发
-      if (!shouldTrigger(session, tickMs)) {
+      // 获取项目特定的心跳间隔
+      const projectHeartbeatInterval = getProjectHeartbeatInterval(session.sessionId);
+      
+      // 检查是否需要触发（使用项目特定的心跳间隔）
+      if (!shouldTrigger(session, projectHeartbeatInterval)) {
         continue;
       }
       
@@ -94,6 +219,9 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
       console.error(`[Drudge] Error processing session ${session.sessionId}:`, message);
     }
   }
+
+  // 检查闹钟
+  await runAlarmTick(stateDir);
 }
 
 /**
@@ -128,6 +256,8 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   
   console.log(`[Drudge] Starting daemon with tick=${tickMs}ms`);
   
+  // Write PID file
+  writePidFile();
   
   // 设置定时器
   daemonState.timer = setInterval(async () => {
@@ -137,8 +267,8 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
     await runTick(daemonState.config);
   }, tickMs);
   
-  // 允许进程退出时自动停止
-  daemonState.timer.unref?.();
+  // Keep the timer referenced to prevent process exit
+  // DO NOT use unref() - we want the daemon to keep running
   
   console.log('[Drudge] Daemon started');
 }
@@ -160,6 +290,9 @@ export function stopDaemon(): void {
   daemonState.started = false;
   daemonState.config = undefined;
   
+  // Delete PID file
+  deletePidFile();
+  
   console.log('[Drudge] Daemon stopped');
 }
 
@@ -167,7 +300,13 @@ export function stopDaemon(): void {
  * 检查 daemon 是否运行
  */
 export function isDaemonRunning(): boolean {
-  return daemonState.started;
+  // Check PID file instead of just daemonState.started
+  // This works across process boundaries
+  const pid = readPidFile();
+  if (pid === null) {
+    return false;
+  }
+  return isProcessRunning(pid);
 }
 
 /**

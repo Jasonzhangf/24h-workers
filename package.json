@@ -1,6 +1,6 @@
 {
   "name": "@jsonstudio/drudge",
-  "version": "0.1.3",
+  "version": "0.1.0006",
   "description": "Independent heartbeat tool with tmux injection and optional proxy mode",
   "type": "module",
   "main": "dist/index.js",
@@ -15,9 +15,15 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "test:run": "npm run build && node --test dist/tests/**/*.test.js",
     "install:global": "npm run build && npm link",
-    "uninstall:global": "npm unlink -g drudge"
+    "uninstall:global": "npm unlink -g drudge",
+    "prebuild": "node scripts/bump-version.cjs"
   },
-  "keywords": ["drudge", "heartbeat", "tmux", "proxy"],
+  "keywords": [
+    "drudge",
+    "heartbeat",
+    "tmux",
+    "proxy"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -29,5 +35,8 @@
     "@types/node": "^20.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "cron-parser": "^4.9.0"
   }
 }

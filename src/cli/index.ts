@@ -3,10 +3,11 @@
  * Drudge CLI Entry
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { fork, spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import {
   getHeartbeatInterval,
   getPromptFile,
@@ -14,8 +15,6 @@ import {
   generateDefaultConfig
 } from '../core/config.js';
 import {
-  startDaemon,
-  stopDaemon,
   isDaemonRunning
 } from '../core/daemon.js';
 import {
@@ -23,10 +22,12 @@ import {
   listSessions,
   loadSession
 } from '../core/state-store.js';
-import { isTmuxSessionAlive, resolveTmuxActiveTarget } from '../tmux/session-probe.js';
+import { isTmuxAvailable, isTmuxSessionAlive, resolveTmuxActiveTarget } from '../tmux/session-probe.js';
 import { attachToExistingTmuxSession } from '../tmux/attach.js';
 import { injectTmuxText } from '../tmux/injector.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
+import { cmdAlarm } from './cmdAlarm.js';
+import { cmdTrigger } from './cmdTrigger.js';
 
 const VERSION = '0.1.3';
 
@@ -210,6 +211,20 @@ function printError(message: string, code?: string): void {
   process.exit(1);
 }
 
+function ensureTmuxAvailable(command?: string): void {
+  if (isTmuxAvailable()) {
+    return;
+  }
+
+  const cmd = command ? ` (command: ${command})` : '';
+  console.error(`Error: tmux is required but not available${cmd}`);
+  console.log('\nInstall tmux:');
+  console.log('  macOS:  brew install tmux');
+  console.log('  Ubuntu: sudo apt-get install tmux');
+  console.log('  CentOS: sudo yum install tmux');
+  process.exit(1);
+}
+
 /**
  * 初始化配置
  */
@@ -304,16 +319,6 @@ async function cmdCodex(args: string[]): Promise<void> {
   const promptFile = getPromptFile(cwd);
 
   generateDefaultConfig();
-
-  if (!isDaemonRunning()) {
-    const config = {
-      tickMs: heartbeatInterval,
-      promptFile,
-      stateDir: path.join(process.env.HOME || '~', '.drudge'),
-      proxy: { enabled: false }
-    };
-    await startDaemon(config as any);
-  }
 
   setSessionEnabled(projectName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
@@ -416,16 +421,6 @@ async function cmdClaude(args: string[]): Promise<void> {
   const promptFile = getPromptFile(cwd);
 
   generateDefaultConfig();
-
-  if (!isDaemonRunning()) {
-    const config = {
-      tickMs: heartbeatInterval,
-      promptFile,
-      stateDir: path.join(process.env.HOME || '~', '.drudge'),
-      proxy: { enabled: false }
-    };
-    await startDaemon(config as any);
-  }
 
   setSessionEnabled(projectName, true, {
     stateDir: path.join(process.env.HOME || '~', '.drudge')
@@ -703,17 +698,22 @@ async function cmdDaemonStart(options: CliOptions): Promise<void> {
 
   const cwd = process.cwd();
   const heartbeatInterval = getHeartbeatInterval(cwd);
-  const promptFile = getPromptFile(cwd);
-  const stateDir = path.join(process.env.HOME || '~', '.drudge');
-
-  const config = {
-    tickMs: heartbeatInterval,
-    promptFile,
-    stateDir,
-    proxy: { enabled: false }
-  };
-
-  await startDaemon(config as any);
+  
+  // Fork daemon process
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const daemonEntryPath = path.join(__dirname, '..', 'daemon-entry.js');
+  const daemonProcess = fork(daemonEntryPath, [], {
+    cwd,
+    detached: true,
+    stdio: 'ignore'
+  });
+  
+  // Unref to allow the parent process to exit independently
+  daemonProcess.unref();
+  
+  // Wait a moment for the daemon to start
+  await new Promise(resolve => setTimeout(resolve, 500));
 
   if (options.json) {
     printJson({ ok: true, tickMs: heartbeatInterval });
@@ -724,13 +724,37 @@ async function cmdDaemonStart(options: CliOptions): Promise<void> {
 }
 
 async function cmdDaemonStop(_options: CliOptions): Promise<void> {
-  if (!isDaemonRunning()) {
-    console.log('Daemon is not running');
+  const homeDir = process.env.HOME || '~';
+  const pidFile = path.join(homeDir, '.drudge', 'daemon.pid');
+  
+  if (!fs.existsSync(pidFile)) {
+    console.log('Daemon is not running (no PID file)');
     return;
   }
-
-  stopDaemon();
-  console.log('Daemon stopped');
+  
+  const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+  if (isNaN(pid)) {
+    console.log('Invalid PID file');
+    fs.unlinkSync(pidFile);
+    return;
+  }
+  
+  // Check if process is running
+  try {
+    process.kill(pid, 0);
+  } catch {
+    console.log('Daemon process not found, cleaning up PID file');
+    fs.unlinkSync(pidFile);
+    return;
+  }
+  
+  // Kill the daemon process
+  try {
+    process.kill(pid, 'SIGTERM');
+    console.log('Daemon stopped');
+  } catch (error) {
+    console.error('Failed to stop daemon:', error);
+  }
 }
 
 async function cmdDaemonStatus(options: CliOptions): Promise<void> {
@@ -777,6 +801,9 @@ Daemon commands:
   stop      Stop daemon
   status    Show daemon status
 
+Trigger command:
+  trigger -s <session> -m <message> [--no-submit]
+
 Options:
   --json    Output as JSON
 `);
@@ -791,6 +818,8 @@ Usage:
   drudge codex [args...]       Launch Codex with heartbeat
   drudge claude [args...]      Launch Claude with heartbeat
   drudge heartbeat <command>   Manage heartbeat
+  drudge alarm <command>       Manage alarms
+  drudge trigger             Inject text into tmux session
   drudge daemon <command>      Manage daemon
 
 Heartbeat commands:
@@ -800,13 +829,25 @@ Heartbeat commands:
   trigger -s <session>  Trigger heartbeat
   status -s <session>   Show session status
 
+Alarm commands:
+  check                Check if alarm is ready for current project
+  add <cron>           Add an alarm (use --id, -p, --once, -m)
+  adopt                Adopt an existing tmux session for alarms
+  list                 List all alarms
+  remove <id>          Remove an alarm
+  trigger <id>         Manually trigger an alarm
+
 Daemon commands:
   start     Start daemon
   stop      Stop daemon
   status    Show daemon status
 
+Trigger command:
+  trigger -s <session> -m <message> [--no-submit]
+
 Options:
   -s, --session <id>    Session ID
+  -p, --project <name>  Project name (for alarm)
   --json                Output as JSON
   -h, --help            Show this help
   -v, --version         Show version
@@ -825,6 +866,17 @@ async function main(): Promise<void> {
 
   const command = args[0];
 
+  // Allow help/version without requiring tmux
+  if (args.includes('-h') || args.includes('--help')) {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (args.includes('-v') || args.includes('--version')) {
+    console.log(`drudge v${VERSION}`);
+    process.exit(0);
+  }
+
   if (command === 'init') {
     const options: CliOptions = {};
     for (let i = 1; i < args.length; i++) {
@@ -837,11 +889,13 @@ async function main(): Promise<void> {
   }
 
   if (command === 'codex') {
+    ensureTmuxAvailable('codex');
     await cmdCodex(args.slice(1));
     return;
   }
 
   if (command === 'claude') {
+    ensureTmuxAvailable('claude');
     await cmdClaude(args.slice(1));
     return;
   }
@@ -880,12 +934,22 @@ async function main(): Promise<void> {
   });
 
   try {
+    // tmux required for these commands
+    if (['heartbeat', 'alarm', 'trigger', 'daemon'].includes(command)) {
+      ensureTmuxAvailable(command);
+    }
     switch (command) {
       case 'heartbeat':
         await cmdHeartbeat(subArgs, options);
         break;
       case 'daemon':
         await cmdDaemon(subArgs, options);
+        break;
+      case 'alarm':
+        await cmdAlarm(subArgs, options);
+        break;
+      case 'trigger':
+        await cmdTrigger(subArgs, options);
         break;
       default:
         printHelp();

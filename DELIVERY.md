@@ -1,5 +1,288 @@
 # 交付记录
 
+## [2026-03-19 14:25] - skills 合并（drudge-alarm → drudge）
+
+### 完成内容
+
+- 保留 `drudge` skill 作为主入口（drudge.clock / drudge.inject）
+- `drudge-alarm` 标记为 Deprecated，指向 `drudge` skill
+- 不移除旧 skill，避免破坏兼容性
+
+---
+
+
+
+## [2026-03-19 14:10] - drudge skill 更新（clock → drudge）
+
+### 完成内容
+
+**新增 Skill**: `drudge`
+- `drudge.clock`：闹钟定时任务（alarm）
+- `drudge.inject`：直接 tmux 注入（trigger）
+- 提供完整样本脚本，模型可自检条件后触发注入
+
+**旧 Skill 标记**:
+- `clock` skill 标记为 DEPRECATED
+- 引导使用 `drudge` skill
+
+---
+
+
+
+## [2026-03-19 13:05] - CLI trigger 注入命令
+
+### 完成内容
+
+**新增命令**: `drudge trigger`
+- 直接向指定 tmux session 注入文本
+- 使用现有 tmux injector
+- 支持 `--no-submit` 控制是否发送 Enter
+
+**用法**:
+```
+drudge trigger -s <session> -m <message> [--no-submit]
+```
+
+**验证**:
+- ✅ `drudge trigger -s routecodex -m "[Alarm] test" --no-submit`
+- ✅ 输出 `Triggered session "routecodex"`
+
+---
+
+
+
+## [2026-03-19 12:20] - Alarm adopt 支持（接管非 drudge session）
+
+### 完成内容
+
+**新增功能**: `drudge alarm adopt`
+- 将非 drudge 启动的 tmux session 接管为可用 alarm session
+- 检查 project 注册 + tmux alive
+- 校验 tmux workdir 是否匹配项目路径（不匹配需 `--force`）
+- 注册 `.drudge/sessions/<project>.json`，让 `alarm check` 通过
+
+**改进**:
+- `alarm check` 增加 session file 检测，并提示 adopt
+- `alarm help` 文案补充 adopt / session / force 参数
+- Skill 文档强调“必须先 check，必要时 adopt”
+
+**测试结果**:
+```
+ℹ tests 35
+ℹ pass 35
+ℹ fail 0
+```
+
+---
+
+
+
+## [2026-03-19 11:30] - Alarm 修复：cron-parser + 注入说明 + once 删除
+
+### 修复内容
+
+**问题修复**:
+1. **cron 解析**
+   - 使用 `cron-parser` 作为唯一真源（支持 `*/5`、步长、范围、列表）
+   - 仍强制要求 5 字段格式（minute hour day-of-month month day-of-week）
+
+2. **one-shot 自动删除**
+   - `triggerAlarm` 成功后若 `once=true` 自动 `removeAlarm`
+   - 移除 runAlarmTick 中重复删除逻辑，避免双删
+
+3. **注入行为说明**
+   - 保持与心跳一致：send-keys + Enter
+   - 在 Skill 中明确：必须是 drudge 启动的模型输入 pane，否则会被 shell 当命令执行
+
+4. **alarm check 增强**
+   - 增加 session 文件存在性检查（确保 drudge 启动）
+   - 输出 `Session file` 字段，并作为 ready 判定条件
+
+5. **help 文案**
+   - `drudge --help` 增加 alarm 子命令提示
+
+**测试结果**:
+```
+ℹ tests 35
+ℹ pass 35
+ℹ fail 0
+```
+
+**验证**:
+- ✅ cron `*/5 * * * *` 被接受
+- ✅ alarm check 显示 session file
+- ✅ alarm trigger 注入走 Enter（模型输入模式）
+- ✅ once 触发后自动删除
+
+---
+
+
+
+## [2026-03-18 15:00] - 闹钟（Alarm）定时任务功能
+
+### 完成内容
+
+**功能**: 支持周期性和单次触发的闹钟定时任务，通过 cron 表达式指定触发时间
+
+**新增文件**:
+- `src/alarm/types.ts` — 闹钟数据模型（Alarm, AlarmCheckResult）
+- `src/alarm/cron-parser.ts` — cron 表达式解析与匹配（无第三方依赖）
+- `src/alarm/store.ts` — 闹钟持久化存储（~/.drudge/alarms.json）
+- `src/cli/cmdAlarm.ts` — 闹钟 CLI 命令（自解析参数）
+- `src/cli/alarm-trigger.ts` — 闹钟触发逻辑（读取 CLOCK.md 并注入 tmux）
+- `~/.codex/skills/drudge-alarm/SKILL.md` — Skill 文件
+- `tests/alarm/cron-parser.test.ts` — cron 解析单元测试（11 用例）
+- `tests/alarm/store.test.ts` — 存储 CRUD 单元测试（4 用例）
+
+**修改文件**:
+- `src/core/daemon.ts` — 在 runTick 中增加 runAlarmTick
+- `src/cli/index.ts` — 增加 alarm 路由
+
+**CLI 命令**:
+```
+drudge alarm check [-p <project>] [--json]
+drudge alarm add <cron> --id <name> -p <project> [--once] [-m <message>]
+drudge alarm list [-p <project>] [--json]
+drudge alarm remove <alarm-id>
+drudge alarm trigger <alarm-id>
+```
+
+**关键约束**:
+- 必须是通过 drudge 启动的 tmux session
+- 项目必须在 config.json 中注册
+- 添加闹钟前自动检查 session 可用性
+- CLOCK.md 由模型自己写入，位于 <project>/.drudge/CLOCK.md
+- 动态读取 alarms.json，无需重启 daemon
+
+**测试结果**:
+```
+ℹ tests 31
+ℹ pass 31
+ℹ fail 0
+```
+
+**验证**:
+- ✅ `drudge alarm check -p routecodex` → Ready for alarm: yes
+- ✅ `drudge alarm add "* * * * *" --id test-alarm -p routecodex --once`
+- ✅ `drudge alarm trigger test-alarm` → tmux capture-pane 包含 CLOCK.md 内容
+- ✅ `drudge alarm remove test-alarm`
+
+**版本**: v0.1.3
+
+---
+
+
+
+## [2026-03-18 12:10] - routecodex 心跳间隔调整为 1 小时
+
+### 完成内容
+
+**需求**: routecodex 目录心跳改为一小时一次
+
+**修改**:
+1. **更新配置文件**:
+   - 在 `~/.drudge/config.json` 中为 routecodex 添加单独配置
+   - 设置 `heartbeatIntervalMs: 3600000` (1小时)
+
+2. **新增软链接处理**:
+   - 在 `src/core/config.ts` 中添加 `resolveRealPath()` 函数
+   - 导入 `realpathSync` 用于解析软链接
+   - 修改 `getProjectConfig()` 同时支持真实路径和软链接路径匹配
+   - 修改 `getProjectName()` 同样支持软链接处理
+
+3. **更新文档**:
+   - 在 `MEMORY.md` 中添加"项目心跳配置"章节
+   - 记录配置文件位置和结构
+   - 记录软链接处理方式
+   - 记录热加载方法（重启 daemon）
+
+**影响**:
+- routecodex 项目的心跳间隔从默认的 15 分钟改为 1 小时
+- 支持软链接路径和实际路径的自动匹配
+- 配置文件修改后需要重启 daemon 才能生效
+
+**测试命令**:
+```bash
+# 1. 在 routecodex 目录检查心跳间隔
+cd ~/github/routecodex
+node dist/cli/index.js heartbeat status -s routecodex
+
+# 2. 重启 daemon 使配置生效
+drudge daemon stop
+drudge daemon start
+
+# 3. 检查 daemon 状态
+drudge daemon status
+```
+
+**版本**: v0.1.3
+
+---
+
+## [2026-03-17 11:00] - 修复 daemon 持久化问题
+
+### 完成内容
+
+**问题**: daemon 使用 unref() 导致进程退出时 daemon 也停止，心跳无法持续工作
+
+**修复**:
+1. **新增 daemon-entry.ts 入口文件**:
+   - 创建独立的 daemon 进程入口点
+   - 使用 child_process.fork() 将 daemon 作为子进程启动
+
+2. **新增 PID 文件管理**:
+   - `getPidFilePath()`: 获取 PID 文件路径 (`~/.drudge/daemon.pid`)
+   - `writePidFile()`: 启动时写入 PID 文件
+   - `readPidFile()`: 读取 PID 文件
+   - `deletePidFile()`: 删除 PID 文件
+   - `isProcessRunning()`: 检查进程是否运行
+
+3. **修改 daemon.ts**:
+   - 移除 `unref()` 调用，保持 daemon 进程运行
+   - 在 `startDaemon` 中调用 `writePidFile()` 写入 PID
+   - 在 `stopDaemon` 中调用 `deletePidFile()` 清理 PID
+   - 修改 `isDaemonRunning()` 使用 PID 文件检查进程状态
+
+4. **修改 CLI**:
+   - `cmdDaemonStart`: 使用 `fork()` 启动独立 daemon 进程
+   - `cmdDaemonStop`: 使用 PID 文件找到并终止 daemon 进程
+   - `cmdDaemonStatus`: 使用 `isDaemonRunning()` 检查进程状态
+   - 移除 `cmdCodex`/`cmdClaude` 中的自动 daemon 启动逻辑
+
+5. **ES Module 兼容**:
+   - 在 CLI 中使用 `import.meta.url` 代替 `__dirname`
+   - 确保 fork 路径正确 (`dist/daemon-entry.js`)
+
+**影响**:
+- daemon 现在作为独立进程运行，不会随 CLI 退出而停止
+- 心跳可以持续工作
+- 用户需要手动启动 daemon: `drudge daemon start`
+- 可以使用 `drudge daemon status` 检查 daemon 状态
+
+**测试命令**:
+```bash
+# 1. 启动 daemon
+drudge daemon start
+
+# 2. 检查 daemon 状态
+drudge daemon status
+
+# 3. 停止 daemon
+drudge daemon stop
+
+# 4. 查看心跳列表
+drudge heartbeat list
+
+# 5. 检查 routecodex 心跳状态
+drudge heartbeat status -s routecodex
+```
+
+**版本**: v0.1.3
+
+---
+
+# 交付记录
+
 ## [2026-03-17 10:20] - CI + Release 自动化
 
 ### 完成内容

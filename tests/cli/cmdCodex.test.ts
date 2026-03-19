@@ -69,7 +69,7 @@ describe('cmdCodex', () => {
     const cliContent = await import('fs').then(fs => fs.promises.readFile(cliFilePath, 'utf8'));
 
     // Verify that isTmuxSessionAlive is imported from tmux/session-probe
-    const importPattern = /import\s*\{\s*isTmuxSessionAlive\s*\}\s*from\s*['"`]\.\.\/tmux\/session-probe\.js['"`]/;
+    const importPattern = /import\s*{[^}]*isTmuxSessionAlive[^}]*}\s*from\s*['"`]\.\.\/tmux\/session-probe\.js['"`]/;
     const match = cliContent.match(importPattern);
 
     assert.ok(

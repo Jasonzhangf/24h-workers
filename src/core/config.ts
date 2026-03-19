@@ -7,6 +7,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { realpathSync } from 'node:fs';
+
+/**
+ * 解析路径的真实路径（处理软链接）
+ */
+function resolveRealPath(inputPath: string): string {
+  try {
+    return realpathSync(inputPath);
+  } catch {
+    return inputPath;
+  }
+}
+
 
 export interface HeartbeatProject {
   path: string;
@@ -114,9 +127,15 @@ export function getProjectConfig(cwd: string): {
   promptFile: string;
 } {
   const config = readConfigFile();
+  
+  // 解析真实路径（处理软链接）
+  const realCwd = resolveRealPath(cwd);
 
-  // 匹配项目
-  const project = config?.projects.find(p => cwd.startsWith(p.path));
+  // 匹配项目（同时支持真实路径和软链接路径）
+  const project = config?.projects.find(p => {
+    const realProjectPath = resolveRealPath(p.path);
+    return realCwd.startsWith(realProjectPath) || cwd.startsWith(p.path);
+  });
 
   if (project) {
     return {
