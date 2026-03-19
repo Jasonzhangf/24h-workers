@@ -1,5 +1,7 @@
 # Drudge (24h-workers)
 
+**Tags**: codex, claude code, iflow, opencode
+
 [English](#english) | [中文](#drudge-24h-workers)
 
 Drudge 是一个基于 **tmux 注入 + 定时触发** 的 24 小时“牛马”工具：
