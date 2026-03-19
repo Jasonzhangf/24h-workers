@@ -1,6 +1,6 @@
 {
   "name": "@jsonstudio/drudge",
-  "version": "0.1.0006",
+  "version": "0.1.5",
   "description": "Independent heartbeat tool with tmux injection and optional proxy mode",
   "type": "module",
   "main": "dist/index.js",
