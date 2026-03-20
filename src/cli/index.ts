@@ -3,7 +3,7 @@
  * Drudge CLI Entry
  */
 
-import { fork, spawn, spawnSync } from 'node:child_process';
+import { execSync, fork, spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -76,8 +76,9 @@ function createManagedTmuxSession(args: {
   if (attempt >= 6) {
     logToFile(`Could not find available session name after 6 attempts`);
     return null;
-  logToFile(`createManagedTmuxSession: attempting to create session: ${sessionName}`);
   }
+
+  logToFile(`createManagedTmuxSession: attempting to create session: ${sessionName}`);
 
  try {
    const result = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd], { encoding: 'utf8' });
@@ -223,6 +224,88 @@ function ensureTmuxAvailable(command?: string): void {
   console.log('  Ubuntu: sudo apt-get install tmux');
   console.log('  CentOS: sudo yum install tmux');
   process.exit(1);
+}
+
+function getDaemonEntryPath(): string {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  return path.join(__dirname, '..', 'daemon-entry.js');
+}
+
+function startLaunchdService(): void {
+  const home = os.homedir();
+  const plistPath = path.join(home, 'Library', 'LaunchAgents', 'com.jsonstudio.drudge.plist');
+  const nodePath = process.execPath;
+  const daemonEntry = getDaemonEntryPath();
+  const logDir = path.join(home, '.drudge');
+  const stdoutPath = path.join(logDir, 'daemon.log');
+  const stderrPath = path.join(logDir, 'daemon.err.log');
+
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jsonstudio.drudge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${nodePath}</string>
+    <string>${daemonEntry}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${stdoutPath}</string>
+  <key>StandardErrorPath</key>
+  <string>${stderrPath}</string>
+</dict>
+</plist>`;
+
+  fs.mkdirSync(path.dirname(plistPath), { recursive: true });
+  fs.writeFileSync(plistPath, plist, 'utf8');
+
+  const uid = process.getuid?.();
+  try {
+    if (uid !== undefined) {
+      execSync(`launchctl bootstrap gui/${uid} ${plistPath}`, { stdio: 'ignore' });
+    } else {
+      execSync(`launchctl load -w ${plistPath}`, { stdio: 'ignore' });
+    }
+  } catch {
+    try {
+      execSync(`launchctl load -w ${plistPath}`, { stdio: 'ignore' });
+    } catch {
+      printError('Failed to start launchd service for drudge daemon');
+    }
+  }
+}
+
+function stopLaunchdService(): void {
+  const home = os.homedir();
+  const plistPath = path.join(home, 'Library', 'LaunchAgents', 'com.jsonstudio.drudge.plist');
+  if (!fs.existsSync(plistPath)) {
+    return;
+  }
+  const uid = process.getuid?.();
+  try {
+    if (uid !== undefined) {
+      execSync(`launchctl bootout gui/${uid} ${plistPath}`, { stdio: 'ignore' });
+    } else {
+      execSync(`launchctl unload -w ${plistPath}`, { stdio: 'ignore' });
+    }
+  } catch {
+    try {
+      execSync(`launchctl unload -w ${plistPath}`, { stdio: 'ignore' });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**
@@ -698,22 +781,25 @@ async function cmdDaemonStart(options: CliOptions): Promise<void> {
 
   const cwd = process.cwd();
   const heartbeatInterval = getHeartbeatInterval(cwd);
-  
-  // Fork daemon process
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const daemonEntryPath = path.join(__dirname, '..', 'daemon-entry.js');
-  const daemonProcess = fork(daemonEntryPath, [], {
-    cwd,
-    detached: true,
-    stdio: 'ignore'
-  });
-  
-  // Unref to allow the parent process to exit independently
-  daemonProcess.unref();
-  
-  // Wait a moment for the daemon to start
-  await new Promise(resolve => setTimeout(resolve, 500));
+
+  if (process.platform === 'darwin') {
+    // macOS: use launchd for persistence + autostart
+    startLaunchdService();
+    // small delay for service to come up
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } else {
+    // Fork daemon process (fallback for non-mac)
+    const daemonEntryPath = getDaemonEntryPath();
+    const daemonProcess = fork(daemonEntryPath, [], {
+      cwd,
+      detached: true,
+      stdio: 'ignore'
+    });
+    // Unref to allow the parent process to exit independently
+    daemonProcess.unref();
+    // Wait a moment for the daemon to start
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 
   if (options.json) {
     printJson({ ok: true, tickMs: heartbeatInterval });
@@ -724,6 +810,10 @@ async function cmdDaemonStart(options: CliOptions): Promise<void> {
 }
 
 async function cmdDaemonStop(_options: CliOptions): Promise<void> {
+  if (process.platform === 'darwin') {
+    stopLaunchdService();
+  }
+
   const homeDir = process.env.HOME || '~';
   const pidFile = path.join(homeDir, '.drudge', 'daemon.pid');
   

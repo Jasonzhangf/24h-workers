@@ -4,3 +4,6 @@ dist/
 .heartbeat/
 *.local.json
 !.gitignore
+# Temp artifacts
+*.tgz
+*.bak
