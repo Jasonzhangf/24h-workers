@@ -117,6 +117,9 @@ export function startLaunchdService(): void {
     fs.mkdirSync(logDir, { recursive: true });
   }
 
+  // 获取当前 PATH 环境变量，确保 tmux 可用
+  const currentPath = process.env.PATH || '/usr/bin:/bin';
+  
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -128,6 +131,11 @@ export function startLaunchdService(): void {
     <string>${nodePath}</string>
     <string>${daemonEntry}</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${currentPath}</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
