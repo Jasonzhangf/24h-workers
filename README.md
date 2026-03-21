@@ -122,6 +122,7 @@ drudge alarm adopt -p <project> -s <session> --force
 ### 3) Review（drudge.review）
 
 独立 review 工具，**默认使用系统 codex**，也可配置为 Claude Code 或自定义工具。输出通过 tmux 注入到会话中。
+> **依赖提醒**：review 工具需安装在系统 PATH 中（codex/claude）。
 
 #### 推荐流程
 ```bash
@@ -135,7 +136,7 @@ drudge review -C <project-dir> --goal "检查交付是否完整" --focus "tests/
 drudge review -s <session> -C <project-dir> --goal "检查交付是否完整"
 ```
 
-#### 配置 review 工具
+#### 配置 review 工具（可编辑）
 
 配置文件：`~/.drudge/review-config.json`
 
@@ -159,6 +160,12 @@ drudge review -s <session> -C <project-dir> --goal "检查交付是否完整"
 ```
 
 **模板变量**：`{cwd}` / `{output}` / `{prompt}` / `{profile}`
+
+#### session 反查
+通过路径反查 tmux session：
+```bash
+drudge session resolve -C <project-dir> --json
+```
 
 #### 环境变量
 - `DRUDGE_REVIEW_TOOL`：指定默认 review 工具
