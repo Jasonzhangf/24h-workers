@@ -57,6 +57,14 @@
   - `claude`: `claude --dangerously-skip-permissions --print {prompt}`
 - **验证**: build + tests 35/35 通过
 
+### 2026-03-21: 显式 session resolve（路径反查）
+- **需求**: 不能让模型自己猜 session，必须能通过路径显式确认 session 参数
+- **实现**:
+  1. 新增命令 `drudge session resolve -C <dir>`
+  2. 支持 `--json` 输出，用于自动化确认 sessionId
+  3. `drudge review` 强制要求 `-s <session>`，不允许隐式选择
+- **验证**: build + tests 35/35 通过
+
 ### 2026-03-21: alarm store 测试权限错误 + 静默失败修复
 ### 2026-03-21: alarm store 测试权限错误 + 静默失败修复
 - **问题**: alarm store 测试在受限环境写入 `~/.drudge/alarms.json` 失败（EPERM），且 `readAlarmsFile` 吞掉所有异常导致静默失败。

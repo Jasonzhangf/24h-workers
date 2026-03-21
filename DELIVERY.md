@@ -54,6 +54,26 @@
 
 ---
 
+## [2026-03-21 22:40] - 显式 session resolve（路径反查）
+
+### 完成内容
+
+**新增能力**:
+1. **新增命令**: `drudge session resolve -C <dir>`
+   - 通过项目路径反查 tmux session ID
+   - 支持 `--json` 输出（用于自动参数确认）
+2. **review 强制 session**
+   - `drudge review` 必须显式 `-s <session>`
+   - 不允许隐式猜测 session
+3. **文档更新**
+   - skills/drudge/SKILL.md 增加 session resolve 用法
+
+**测试结果**: 35/35 通过
+
+**版本**: v0.1.18
+
+---
+
 ## [2026-03-21 19:10] - Review 流程修复：移除误导日志，增强可观测性
 
 ### 完成内容

@@ -73,52 +73,52 @@ function resolveReviewConfigFile(): string {
  * 优先级：--tool 参数 > review-config.json > 环境变量 > 默认 codex
  */
 function loadReviewTool(toolName: string | undefined): ReviewToolConfig {
-  // 1. 环境变量
-  if (process.env.DRUDGE_REVIEW_TOOL) {
-    const envTool = process.env.DRUDGE_REVIEW_TOOL;
-    const builtin = BUILTIN_TOOLS[envTool];
-    if (builtin) {
-      logToFile(`[review] Using env DRUDGE_REVIEW_TOOL=${envTool}`);
-      return { ...builtin };
-    }
-    // 环境变量指定了自定义工具
-    logToFile(`[review] Using env DRUDGE_REVIEW_TOOL=${envTool} (custom)`);
-    return { name: envTool, bin: envTool, argsTemplate: ['{prompt}'], stdoutMode: 'full' };
-  }
-
-  // 2. 配置文件
   const configFile = resolveReviewConfigFile();
+  let config: any = {};
+
   if (fs.existsSync(configFile)) {
     try {
       const content = fs.readFileSync(configFile, 'utf8');
-      const config = JSON.parse(content);
-
-      // 如果配置了 default 工具
-      const resolvedName = toolName || config.default;
-      if (resolvedName && config.tools && config.tools[resolvedName]) {
-        const builtin = BUILTIN_TOOLS[resolvedName] || {};
-        logToFile(`[review] Loaded tool "${resolvedName}" from review-config.json`);
-        return { ...builtin, ...config.tools[resolvedName] };
-      }
-      if (config.default && config.tools && config.tools[config.default]) {
-        const builtin = BUILTIN_TOOLS[config.default] || {};
-        logToFile(`[review] Loaded default tool "${config.default}" from review-config.json`);
-        return { ...builtin, ...config.tools[config.default] };
-      }
+      config = JSON.parse(content) || {};
     } catch (e) {
       logToFile(`[review] Failed to load review-config.json: ${e}`);
     }
   }
 
-  // 3. --tool 参数
-  if (toolName && BUILTIN_TOOLS[toolName]) {
-    logToFile(`[review] Using --tool=${toolName}`);
-    return { ...BUILTIN_TOOLS[toolName] };
+  const tools = config.tools || {};
+  const defaultName = config.default;
+
+  const resolveTool = (name: string): ReviewToolConfig => {
+    const builtin = BUILTIN_TOOLS[name] || {};
+    if (tools[name]) {
+      logToFile(`[review] Loaded tool "${name}" from review-config.json`);
+      return { ...builtin, ...tools[name] };
+    }
+    if (BUILTIN_TOOLS[name]) {
+      logToFile(`[review] Using builtin tool "${name}"`);
+      return { ...BUILTIN_TOOLS[name] };
+    }
+    logToFile(`[review] Using custom tool "${name}"`);
+    return { name, bin: name, argsTemplate: ['{prompt}'], stdoutMode: 'full' };
+  };
+
+  // 1) CLI --tool
+  if (toolName) {
+    return resolveTool(toolName);
   }
 
-  // 4. 默认 codex
-  logToFile(`[review] Using default tool: codex`);
-  return { ...BUILTIN_TOOLS.codex };
+  // 2) config default
+  if (defaultName) {
+    return resolveTool(defaultName);
+  }
+
+  // 3) env override
+  if (process.env.DRUDGE_REVIEW_TOOL) {
+    return resolveTool(process.env.DRUDGE_REVIEW_TOOL);
+  }
+
+  // 4) fallback
+  return resolveTool('codex');
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,6 +154,8 @@ function buildReviewPrompt(args: ReviewArgs): string {
 
   return [
     '请先做严格代码 review（证据驱动），不要相信"已完成"口头声明。',
+    '你必须直接执行 review，不得提澄清问题，不得因指令冲突而停住。',
+    '若"短期目标"与本模板冲突，以本模板约束为最高优先级。',
     '',
     '**重要约束**：',
     '- 只读 review，禁止修改任何代码或文件',
@@ -163,8 +165,9 @@ function buildReviewPrompt(args: ReviewArgs): string {
     '',
     `短期目标：${composedGoal}`,
     contextLine,
+    'review 范围固定：优先核对 DELIVERY.md 最新声明；若缺少声明项，则核对当前仓库未提交变更与最近测试证据。',
     '要求：逐条给出"声明项 -> 证据（文件路径/测试名/命令输出）-> 是否完成"；缺证据按未完成处理。',
-    '然后给出最小下一步写动作（改代码/补测试），并继续执行，不要直接 stop。'
+    '最后只给"最小下一步写动作（建议，不执行）"，并继续只读巡检，不要 stop。'
   ]
     .filter(Boolean)
     .join('\n');
@@ -203,6 +206,40 @@ function extractStdoutText(stdout: string, mode: string): string {
   return stdout.trim();
 }
 
+function extractCodexAgentMessageFromJson(stdout: string): string {
+  const lines = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let lastAgentMessage = '';
+  for (const line of lines) {
+    if (!line.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed?.type !== 'item.completed') continue;
+      const item = parsed?.item;
+      if (item?.type === 'agent_message' && typeof item?.text === 'string' && item.text.trim()) {
+        lastAgentMessage = item.text.trim();
+      }
+    } catch {
+      // ignore non-JSON lines
+    }
+  }
+  return lastAgentMessage;
+}
+
+function addJsonFlagToCodexArgs(args: string[]): string[] {
+  if (args.includes('--json')) return [...args];
+  // codex 规范形态为: codex exec [flags] <prompt>
+  const execIndex = args.findIndex((arg) => arg === 'exec');
+  if (execIndex >= 0) {
+    const next = [...args];
+    next.splice(execIndex + 1, 0, '--json');
+    return next;
+  }
+  return ['--json', ...args];
+}
+
 /* ------------------------------------------------------------------ */
 /*  主命令                                                            */
 /* ------------------------------------------------------------------ */
@@ -211,10 +248,10 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   const parsed = parseReviewArgs(args);
   const reviewCwd = options.cwd || process.cwd();
   const projectName = getProjectName(reviewCwd);
-  const sessionId = options.session || projectName;
+  const sessionId = options.session;
 
   if (!sessionId) {
-    printError('Session ID required. Use -s <session> or run from a registered project directory.');
+    printError('Session ID required. Use -s <session>. Hint: drudge session resolve -C <dir> --json');
     return;
   }
 
@@ -225,7 +262,7 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
 
   const prompt = buildReviewPrompt(parsed);
   const tool = loadReviewTool(options.tool);
-  logToFile(`[review] Starting review for session=${sessionId}, cwd=${reviewCwd}, tool=${tool.name}`);
+  logToFile(`[review] Starting review for session=${sessionId}, cwd=${reviewCwd}, project=${projectName}, tool=${tool.name}`);
   logToFile(`[review] Prompt: ${prompt.slice(0, 200)}...`);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'drudge-review-'));
@@ -261,7 +298,7 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   });
 
   const failed = result.status !== 0 || !!result.error;
-  const errorText = failed
+  let errorText = failed
     ? (result.stderr || result.stdout || `${bin} failed`).trim()
     : (result.stderr || '').trim();
   logToFile(`[review] exit: status=${result.status}, error=${result.error ? String(result.error) : 'none'}, stderr=${errorText.slice(0, 300)}`);
@@ -279,12 +316,41 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
     reviewText = extractStdoutText(result.stdout, tool.stdoutMode || 'full');
   }
 
+  // codex 在少数情况下会 exit=0 但不写 output 文件且 stdout 为空。
+  // 这里做一次 JSON 强制重试，避免“空输出”静默降级。
+  if (!reviewText && !failed && tool.name === 'codex') {
+    const retryArgs = addJsonFlagToCodexArgs(finalArgs);
+    logToFile(`[review] empty primary output; retry with codex --json, args=${JSON.stringify(retryArgs.slice(0, 8))}...`);
+    const retryResult = spawnSync(bin, retryArgs, {
+      cwd: reviewCwd,
+      encoding: 'utf8',
+      timeout: 15 * 60 * 1000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: spawnEnv
+    });
+    const retryFailed = retryResult.status !== 0 || !!retryResult.error;
+    const retryError = retryFailed
+      ? (retryResult.stderr || retryResult.stdout || `${bin} failed`).trim()
+      : (retryResult.stderr || '').trim();
+    logToFile(`[review] retry exit: status=${retryResult.status}, error=${retryResult.error ? String(retryResult.error) : 'none'}, stderr=${retryError.slice(0, 300)}`);
+
+    const retryText = extractCodexAgentMessageFromJson(retryResult.stdout || '');
+    if (retryText) {
+      reviewText = retryText;
+      logToFile('[review] retry produced agent_message from codex --json');
+    } else if (retryFailed) {
+      errorText = retryError || errorText;
+    } else if (retryError) {
+      errorText = retryError;
+    }
+  }
+
   // 最终 fallback
   if (!reviewText) {
     logToFile('[review] tool returned empty, using fallback');
     reviewText = failed
       ? `[Review][Error] ${bin} failed: ${errorText || 'unknown error'}`
-      : `[Review] ${bin} returned empty output.`;
+      : `[Review][Error] ${bin} completed without assistant output. stderr=${(errorText || 'n/a').slice(0, 240)}`;
   }
   logToFile(`[review] review text length=${reviewText.length}`);
 
@@ -304,7 +370,14 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   logToFile(`[review] completed. session=${sessionId}, tool=${tool.name}, failed=${failed}`);
 
   if (options.json) {
-    printJson({ ok: injectResult.ok, target, tool: tool.name, reason: injectResult.reason, failed, error: errorText || undefined });
+    printJson({
+      ok: injectResult.ok,
+      target,
+      tool: tool.name,
+      reason: injectResult.reason,
+      failed,
+      error: failed ? (errorText || undefined) : undefined
+    });
     return;
   }
 

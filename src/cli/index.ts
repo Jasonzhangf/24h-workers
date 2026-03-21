@@ -21,6 +21,7 @@ import { attachToExistingTmuxSession } from '../tmux/attach.js';
 import { cmdAlarm } from './cmdAlarm.js';
 import { cmdTrigger } from './cmdTrigger.js';
 import { cmdReview } from './cmdReview.js';
+import { cmdSession } from './cmdSession.js';
 import { cmdHeartbeat, printHeartbeatHelp } from './cmdHeartbeat.js';
 import { cmdDaemon, printDaemonHelp } from './cmdDaemon.js';
 import { printJson, printError, ensureTmuxAvailable, logToFile, shellQuote, resolveCurrentTmuxTarget, type CliOptions } from './cli-utils.js';
@@ -322,8 +323,8 @@ Usage:
   drudge claude [args...]      Launch Claude with heartbeat
   drudge heartbeat <command>   Manage heartbeat
   drudge alarm <command>       Manage alarms
+  drudge session <command>     Resolve tmux session by path
   drudge trigger             Inject text into tmux session
-  drudge review              Run review flow and inject result
   drudge review              Run review flow and inject result
   drudge daemon <command>      Manage daemon
 
@@ -342,6 +343,9 @@ Alarm commands:
   remove <id>          Remove an alarm
   trigger <id>         Manually trigger an alarm
 
+Session commands:
+  resolve -C <dir>      Resolve tmux session by workdir
+
 Daemon commands:
   start     Start daemon
   stop      Stop daemon
@@ -351,8 +355,7 @@ Trigger command:
   trigger -s <session> -m <message> [--no-submit]
 
 Review command:
-  review [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>] [--tool <name>]
-  review [--goal <text>] [--focus <text>] [--context <text>]
+  review -s <session> [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>] [--tool <name>]
 
 Options:
   -s, --session <id>    Session ID
@@ -462,7 +465,7 @@ async function main(): Promise<void> {
 
   try {
     // tmux required for these commands
-  if (['heartbeat', 'alarm', 'trigger', 'review', 'daemon'].includes(command)) {
+  if (['heartbeat', 'alarm', 'trigger', 'review', 'daemon', 'session'].includes(command)) {
     ensureTmuxAvailable(command);
   }
     switch (command) {
@@ -474,6 +477,9 @@ async function main(): Promise<void> {
         break;
       case 'alarm':
         await cmdAlarm(subArgs, options);
+        break;
+      case 'session':
+        await cmdSession(subArgs, options);
         break;
       case 'trigger':
         await cmdTrigger(subArgs, options);

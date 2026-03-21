@@ -15,6 +15,58 @@ description: Drudge skill set for scheduling (drudge.clock) and tmux injection (
 
 ---
 
+## 如何确定/创建当前项目的 tmux session（必须显式确认）
+
+**目标**：模型需要知道“当前项目对应哪个 tmux session”，如果不存在则创建或接管。
+
+### 1) 先确认项目名与路径
+```bash
+pwd
+basename "$(pwd)"   # projectName
+```
+
+### 2) 优先用 drudge 检查 session 是否就绪
+```bash
+drudge alarm check -p <project> --json
+```
+- `ready: true` → 说明 drudge session 已存在，可直接注入/定时
+- `ready: false` → 说明未注册或未有 drudge session
+
+### 3) 通过路径定位 tmux session（必须显式确认）
+```bash
+tmux list-panes -a -F '#S:#I.#P\t#{pane_current_path}'
+```
+找到 `pane_current_path` 与项目路径匹配的行，取对应的 `session:window.pane` 作为目标。
+
+**推荐：用 drudge 内置命令反查（自动参数确认）**
+```bash
+drudge session resolve -C <project-dir> --json
+```
+输出示例：
+```json
+{ "ok": true, "target": "routecodex:0.0", "sessionName": "routecodex", "cwd": "/path" }
+```
+
+### 4) 如果 session 不存在：创建或接管
+
+**推荐：创建 drudge 管理的 session**
+```bash
+drudge codex   # 或 drudge claude
+```
+它会自动创建 `<projectName>` session，并写入 `~/.drudge/sessions/<project>.json`。
+
+**已有 tmux session 但不是 drudge 启动 → 接管**
+```bash
+drudge alarm adopt -p <project> -s <session> --force
+```
+
+> **结论**：
+> - 必须先确认 session（推荐 `drudge session resolve -C`）
+> - 不允许隐式猜测 session
+> - 没有 session 就用 `drudge codex/claude` 创建
+
+---
+
 ## 标记语法（Marker Syntax）
 
 与 clock skill 保持一致的格式：
@@ -149,6 +201,10 @@ drudge trigger -s <session> -m "[Alarm] 立即检查任务状态"
 ```
 
 ```bash
+# 先显式解析 session
+drudge session resolve -C <project-dir> --json
+
+# 再执行 review（必须带 -s）
 drudge review -s <session> -C <project-dir> --goal "检查交付是否完整" --focus "tests/build/evidence"
 drudge review -s <session> --tool claude  # 使用 claude 而非 codex
 ```
