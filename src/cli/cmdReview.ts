@@ -99,12 +99,17 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   const outputFilePath = path.join(tmpDir, 'last-message.txt');
 
   // run codex exec with review prompt (routecodex-compatible)
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
   const result = spawnSync(
     codexBin,
     ['exec', '--color', 'never', '--skip-git-repo-check', '--output-last-message', outputFilePath, prompt],
     {
       cwd,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CODEX_HOME: codexHome
+      }
     }
   );
 
