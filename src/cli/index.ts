@@ -20,6 +20,7 @@ import { isTmuxAvailable, isTmuxSessionAlive, resolveTmuxActiveTarget } from '..
 import { attachToExistingTmuxSession } from '../tmux/attach.js';
 import { cmdAlarm } from './cmdAlarm.js';
 import { cmdTrigger } from './cmdTrigger.js';
+import { cmdReview } from './cmdReview.js';
 import { cmdHeartbeat, printHeartbeatHelp } from './cmdHeartbeat.js';
 import { cmdDaemon, printDaemonHelp } from './cmdDaemon.js';
 import { printJson, printError, ensureTmuxAvailable, logToFile, shellQuote, resolveCurrentTmuxTarget, type CliOptions } from './cli-utils.js';
@@ -322,6 +323,8 @@ Usage:
   drudge heartbeat <command>   Manage heartbeat
   drudge alarm <command>       Manage alarms
   drudge trigger             Inject text into tmux session
+  drudge review              Run review flow and inject result
+  drudge review              Run review flow and inject result
   drudge daemon <command>      Manage daemon
 
 Heartbeat commands:
@@ -346,6 +349,10 @@ Daemon commands:
 
 Trigger command:
   trigger -s <session> -m <message> [--no-submit]
+
+Review command:
+  review [--goal <text>] [--focus <text>] [--context <text>]
+  review [--goal <text>] [--focus <text>] [--context <text>]
 
 Options:
   -s, --session <id>    Session ID
@@ -438,9 +445,9 @@ async function main(): Promise<void> {
 
   try {
     // tmux required for these commands
-    if (['heartbeat', 'alarm', 'trigger', 'daemon'].includes(command)) {
-      ensureTmuxAvailable(command);
-    }
+  if (['heartbeat', 'alarm', 'trigger', 'review', 'daemon'].includes(command)) {
+    ensureTmuxAvailable(command);
+  }
     switch (command) {
       case 'heartbeat':
         await cmdHeartbeat(subArgs, options);
@@ -453,6 +460,9 @@ async function main(): Promise<void> {
         break;
       case 'trigger':
         await cmdTrigger(subArgs, options);
+        break;
+      case 'review':
+        await cmdReview(subArgs, options);
         break;
       default:
         printHelp();
