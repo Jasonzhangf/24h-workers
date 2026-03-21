@@ -107,11 +107,8 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
     }
   );
 
-  if (result.status !== 0) {
-    const reason = result.stderr || result.stdout || 'codex exec failed';
-    printError(reason.trim());
-    return;
-  }
+  const codexFailed = result.status !== 0;
+  const codexErrorText = (result.stderr || result.stdout || 'codex exec failed').trim();
 
   let reviewText = '';
   if (fs.existsSync(outputFilePath)) {
@@ -127,7 +124,9 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   }
 
   if (!reviewText) {
-    reviewText = '[Review] codex returned empty output.';
+    reviewText = codexFailed
+      ? `[Review][Error] codex exec failed: ${codexErrorText || 'unknown error'}`
+      : '[Review] codex returned empty output.';
   }
 
   try {
@@ -145,12 +144,17 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   });
 
   if (options.json) {
-    printJson({ ok: injectResult.ok, reason: injectResult.reason });
+    printJson({ ok: injectResult.ok, reason: injectResult.reason, codexFailed, codexError: codexErrorText || undefined });
     return;
   }
 
   if (!injectResult.ok) {
     printError(injectResult.reason || 'review inject failed');
+    return;
+  }
+
+  if (codexFailed) {
+    console.log(`Review injected with codex error to session: ${sessionId}`);
     return;
   }
 
