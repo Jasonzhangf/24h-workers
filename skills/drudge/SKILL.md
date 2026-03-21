@@ -117,34 +117,60 @@ drudge trigger -s <session> -m "[Alarm] 立即检查任务状态"
 
 ## drudge.review（review + codex + tmux 注入）
 
-触发 review 流程（**独立工具，不是 servertool review**）：
+触发 review 流程（**独立工具，可配置**）：
 1) 生成严格 review 提示词
-2) 调用系统 `codex exec -C <cwd>` 执行 review
+2) 调用配置的 review 工具（默认 codex，可配置为 claude 或自定义）
 3) 将输出注入到 tmux session
 
 > **重要**：只有 drudge 启动的 tmux session 才能保证注入是“输入而非命令执行”。
 > 若 session 不是 drudge 启动，请先 `drudge alarm check`，必要时 `drudge alarm adopt`。
 
+> **配置文件**: `~/.drudge/review-config.json`
+> 可自定义默认工具、工具路径、参数模板
+
+**配置示例**:
+```json
+{
+  "default": "codex",
+  "tools": {
+    "codex": {
+      "name": "codex",
+      "bin": "codex",
+      "argsTemplate": ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--output-last-message", "{output}", "{prompt}"]
+    },
+    "claude": {
+      "name": "claude",
+      "bin": "claude",
+      "argsTemplate": ["--dangerously-skip-permissions", "--print", "{prompt}"],
+      "stdoutMode": "last-message"
+    }
+  }
+}
+```
+
 ```bash
 drudge review -s <session> -C <project-dir> --goal "检查交付是否完整" --focus "tests/build/evidence"
+drudge review -s <session> --tool claude  # 使用 claude 而非 codex
 ```
 
 **参数**：
 - `-s, --session <id>`：目标 tmux session（默认使用当前目录 projectName）
 - `-C, --cwd <dir>`：review 工作目录（由 drudge 设置进程 cwd）
+- `--tool <name>`：指定 review 工具（codex/claude/自定义）
 - `-p, --profile <name>`：codex profile（可选；仅在目标 codex 支持 `--profile` 时传递）
 - `--goal <text>`：review 目标（可选）
 - `--focus <text>`：review 聚焦点（可选）
 - `--context <text>`：补充上下文（可选）
 
 **行为说明**：
-- review 阻塞等待 codex 完成（最长约 15 分钟）
+- review 阻塞等待工具完成（最长约 15 分钟）
 - review **只读**（prompt 明确禁止写操作/改文件）
 - review 失败也会注入错误提示（不会卡住）
 - 输出包含时间标签 + `[Review]` 前缀
 
 **可选环境变量**：
 - `DRUDGE_REVIEW_CODEX_BIN`：指定 codex 命令路径
+- `DRUDGE_REVIEW_TOOL`：指定默认 review 工具（覆盖配置文件）
 - `ROUTECODEX_STOPMESSAGE_AI_FOLLOWUP_CODEX_BIN`：兼容 routecodex 变量
 - `CODEX_HOME`：指定 codex 配置目录（默认 `~/.codex`）
 

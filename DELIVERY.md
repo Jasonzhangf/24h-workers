@@ -32,6 +32,28 @@
 
 ---
 
+## [2026-03-21 22:10] - drudge.review 可配置工具支持
+
+### 完成内容
+
+**新增能力**:
+1. **支持配置 review 工具**（codex / claude / 自定义）
+   - 新增 `~/.drudge/review-config.json`
+   - `--tool <name>` CLI 参数
+   - `DRUDGE_REVIEW_TOOL` 环境变量
+
+2. **参数模板替换**
+   - `{cwd}` / `{output}` / `{prompt}` / `{profile}` 变量
+
+3. **文档更新**
+   - skills/drudge/SKILL.md 添加配置示例
+
+**测试结果**: 35/35 通过
+
+**版本**: v0.1.16
+
+---
+
 ## [2026-03-21 19:10] - Review 流程修复：移除误导日志，增强可观测性
 
 ### 完成内容

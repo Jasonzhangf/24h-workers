@@ -351,7 +351,7 @@ Trigger command:
   trigger -s <session> -m <message> [--no-submit]
 
 Review command:
-  review [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>]
+  review [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>] [--tool <name>]
   review [--goal <text>] [--focus <text>] [--context <text>]
 
 Options:
@@ -359,6 +359,7 @@ Options:
   -p, --project <name>  Project name (for alarm)
   -C, --cwd <dir>       Working directory (for review)
   --profile <name>      Codex profile (for review)
+  --tool <name>         Review tool (codex/claude/custom)
   --json                Output as JSON
   -h, --help            Show this help
   -v, --version         Show version
@@ -441,6 +442,11 @@ async function main(): Promise<void> {
       options.cwd = args[++i];
       continue;
     }
+
+    if (arg === '--tool') {
+      options.tool = args[++i];
+      continue;
+    }
   }
 
   const subArgs = args.slice(1).filter((a, i, arr) => {
@@ -448,6 +454,8 @@ async function main(): Promise<void> {
     if (i > 0 && (arr[i - 1] === '-s' || arr[i - 1] === '--session')) return false;
     if (a === '-C' || a === '--cwd') return false;
     if (i > 0 && (arr[i - 1] === '-C' || arr[i - 1] === '--cwd')) return false;
+    if (a === '--tool') return false;
+    if (i > 0 && (arr[i - 1] === '--tool')) return false;
     if (a === '--json') return false;
     return true;
   });

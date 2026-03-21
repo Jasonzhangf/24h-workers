@@ -45,6 +45,18 @@
 - **验证**: routecodex session 成功收到完整 review 结果注入（codex 逐条检查了 heartbeat checklist、Rust 主线任务、交付证据）
 - **教训**: 当用户说"和 X 没关系"时，必须立即停止搜索 X 的代码，先理解正确的架构意图
 
+### 2026-03-21: drudge.review 支持可配置工具
+- **需求**: review 使用 codex/claude code 等需可文本配置，用户可自定义参数
+- **实现**:
+  1. `~/.drudge/review-config.json` 支持设置 default tool + tools 配置
+  2. `--tool <name>` CLI 选项可覆盖默认工具
+  3. `DRUDGE_REVIEW_TOOL` 环境变量支持全局覆盖
+  4. `cmdReview.ts` 根据配置展开参数模板（{cwd}/{output}/{prompt}/{profile}）
+- **默认工具**:
+  - `codex`: `codex exec --output-last-message {output} {prompt}`（含 skip-git-repo-check + bypass）
+  - `claude`: `claude --dangerously-skip-permissions --print {prompt}`
+- **验证**: build + tests 35/35 通过
+
 ### 2026-03-21: alarm store 测试权限错误 + 静默失败修复
 ### 2026-03-21: alarm store 测试权限错误 + 静默失败修复
 - **问题**: alarm store 测试在受限环境写入 `~/.drudge/alarms.json` 失败（EPERM），且 `readAlarmsFile` 吞掉所有异常导致静默失败。

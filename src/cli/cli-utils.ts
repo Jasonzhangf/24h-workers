@@ -197,5 +197,6 @@ export function stopLaunchdService(): void {
 export interface CliOptions {
   session?: string;
   cwd?: string;
+  tool?: string;
   json?: boolean;
 }
