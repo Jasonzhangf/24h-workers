@@ -1,5 +1,76 @@
 # 交付记录
 
+## [2026-03-21 00:30] - CLI 模块化拆分（< 500 行）
+
+### 完成内容
+
+**问题**: src/cli/index.ts 超过 1000 行，违反 AGENTS.md 单文件不超过 500 行的规则
+
+**修复**:
+1. 创建 src/cli/cli-utils.ts (192 行) - 共享工具函数
+2. 创建 src/cli/tmux-helpers.ts (130 行) - tmux session 管理
+3. 创建 src/cli/cmdHeartbeat.ts (191 行) - 心跳命令
+4. 创建 src/cli/cmdDaemon.ts (143 行) - 守护进程命令
+5. 更新 src/cli/index.ts (467 行) - 仅保留入口路由
+
+**测试结果**: 35/35 通过
+
+**版本**: v0.1.6
+
+---
+
+## [2026-03-20 23:55] - macOS launchd daemon 持久化 + 日志缩进修复
+
+### 完成内容
+
+**问题修复**:
+1. **createManagedTmuxSession 日志缩进错误**
+   - logToFile 语句误放在 if 块内部
+   - 已修复：将日志移到 if 块外部
+
+2. **macOS daemon 持久化与开机自启**
+   - 新增 startLaunchdService/stopLaunchdService 函数
+   - cmdDaemonStart 在 macOS 使用 launchd
+   - plist 配置 RunAtLoad=true, KeepAlive=true
+
+**版本**: v0.1.6
+
+---
+
+**版本**: v0.1.6
+
+---
+
+
+### 完成内容
+
+**问题修复**:
+1. **createManagedTmuxSession 日志缩进错误**
+   - logToFile 语句误放在 if 块内部
+   - 导致日志输出在错误位置
+   - 已修复：将日志移到 if 块外部
+
+2. **macOS daemon 持久化与开机自启**
+   - 新增 `startLaunchdService()` 函数：创建 LaunchAgent plist 并启动
+   - 新增 `stopLaunchdService()` 函数：卸载 LaunchAgent
+   - `cmdDaemonStart`：macOS 使用 launchd，其他平台使用 fork
+   - plist 配置：RunAtLoad=true, KeepAlive=true
+
+**关键代码**:
+- `src/cli/index.ts`:
+  - 新增 launchd plist 生成逻辑
+  - 标准输出/错误重定向到 ~/.drudge/daemon.log 和 daemon.err.log
+  - 使用 `launchctl bootstrap` / `bootout` 管理 service
+
+**版本**: v0.1.6
+
+**待完成**:
+- [ ] CLI 拆分（当前 1054 行 > 500 行限制）
+- [ ] Linux systemd 支持
+- [ ] README 更新 daemon autostart 说明
+
+---
+
 ## [2026-03-19 14:25] - skills 合并（drudge-alarm → drudge）
 
 ### 完成内容
