@@ -351,12 +351,14 @@ Trigger command:
   trigger -s <session> -m <message> [--no-submit]
 
 Review command:
-  review [--goal <text>] [--focus <text>] [--context <text>]
+  review [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>]
   review [--goal <text>] [--focus <text>] [--context <text>]
 
 Options:
   -s, --session <id>    Session ID
   -p, --project <name>  Project name (for alarm)
+  -C, --cwd <dir>       Working directory (for review)
+  --profile <name>      Codex profile (for review)
   --json                Output as JSON
   -h, --help            Show this help
   -v, --version         Show version
@@ -434,11 +436,18 @@ async function main(): Promise<void> {
       options.session = args[++i];
       continue;
     }
+
+    if (arg === '-C' || arg === '--cwd') {
+      options.cwd = args[++i];
+      continue;
+    }
   }
 
   const subArgs = args.slice(1).filter((a, i, arr) => {
     if (a === '-s' || a === '--session') return false;
     if (i > 0 && (arr[i - 1] === '-s' || arr[i - 1] === '--session')) return false;
+    if (a === '-C' || a === '--cwd') return false;
+    if (i > 0 && (arr[i - 1] === '-C' || arr[i - 1] === '--cwd')) return false;
     if (a === '--json') return false;
     return true;
   });

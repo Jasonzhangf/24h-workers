@@ -8,8 +8,48 @@ import path from 'node:path';
 import os from 'node:os';
 import type { Alarm } from './types.js';
 
-const ALARMS_DIR = path.join(os.homedir(), '.drudge');
-const ALARMS_FILE = path.join(ALARMS_DIR, 'alarms.json');
+const DEFAULT_ALARMS_DIR = path.join(os.homedir(), '.drudge');
+const DEFAULT_ALARMS_FILE = path.join(DEFAULT_ALARMS_DIR, 'alarms.json');
+
+type AlarmPaths = {
+  dir: string;
+  file: string;
+};
+
+function resolveAlarmsPath(): AlarmPaths {
+  const envFile = process.env.DRUDGE_ALARMS_FILE;
+  if (envFile !== undefined) {
+    const trimmed = envFile.trim();
+    if (!trimmed) {
+      throw new Error('DRUDGE_ALARMS_FILE is set but empty');
+    }
+    return {
+      dir: path.dirname(trimmed),
+      file: trimmed,
+    };
+  }
+
+  const envDir = process.env.DRUDGE_ALARMS_DIR;
+  if (envDir !== undefined) {
+    const trimmed = envDir.trim();
+    if (!trimmed) {
+      throw new Error('DRUDGE_ALARMS_DIR is set but empty');
+    }
+    return {
+      dir: trimmed,
+      file: path.join(trimmed, 'alarms.json'),
+    };
+  }
+
+  return {
+    dir: DEFAULT_ALARMS_DIR,
+    file: DEFAULT_ALARMS_FILE,
+  };
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error;
+}
 
 /**
  * 规范化闹钟对象
@@ -54,11 +94,20 @@ function createDefaultAlarm(id: string, cron: string): Alarm {
  * 读取闹钟文件
  */
 function readAlarmsFile(): Record<string, unknown> {
+  const { file } = resolveAlarmsPath();
   try {
-    const content = fs.readFileSync(ALARMS_FILE, 'utf8');
-    return JSON.parse(content) as Record<string, unknown>;
-  } catch {
-    return {};
+    const content = fs.readFileSync(file, 'utf8');
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error(`Invalid alarms file content at ${file}`);
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') {
+      return {};
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read alarms file at ${file}: ${message}`);
   }
 }
 
@@ -66,12 +115,13 @@ function readAlarmsFile(): Record<string, unknown> {
  * 写入闹钟文件
  */
 function writeAlarmsFile(data: Record<string, unknown>): void {
-  if (!fs.existsSync(ALARMS_DIR)) {
-    fs.mkdirSync(ALARMS_DIR, { recursive: true });
+  const { dir, file } = resolveAlarmsPath();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
-  const tempPath = `${ALARMS_FILE}.tmp`;
+  const tempPath = `${file}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
-  fs.renameSync(tempPath, ALARMS_FILE);
+  fs.renameSync(tempPath, file);
 }
 
 /**

@@ -1,15 +1,27 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 // Use a temp directory for tests
-const TEST_DIR = path.join(os.tmpdir(), `drudge-alarm-test-${Date.now()}`);
+const TEST_DIR = path.join(os.tmpdir(), `drudge-alarm-test-${process.pid}`);
+
+function cleanupTestDir(): void {
+  if (fs.existsSync(TEST_DIR)) {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  }
+}
 
 describe('alarm store', () => {
-  beforeEach(async () => {
-    // We test the store logic by importing after setting env
-    // Since store uses hardcoded path, we test the logic indirectly
+  beforeEach(() => {
+    cleanupTestDir();
+    process.env.DRUDGE_ALARMS_DIR = TEST_DIR;
+    delete process.env.DRUDGE_ALARMS_FILE;
+  });
+
+  afterEach(() => {
+    cleanupTestDir();
   });
 
   it('should export CRUD functions', async () => {

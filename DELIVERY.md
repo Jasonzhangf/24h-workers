@@ -1,5 +1,76 @@
 # 交付记录
 
+## [2026-03-21 21:30] - drudge.review 独立工具修复
+
+### 完成内容
+
+**问题修复**:
+1. **简化 cmdReview.ts**（168行，< 500行）：
+   - 调用系统 `codex exec -C <cwd>` 执行 review
+   - 使用 `--output-last-message` 获取输出
+   - 将结果通过 tmux 注入返回
+   - 和 routecodex / servertool 完全无关
+
+2. **移除不必要的复杂性**：
+   - 移除 codex capability 检测逻辑
+   - 移除 resolveTmuxTargetByWorkdir 调用
+   - 移除误导性的 emitReviewToolLogs
+
+3. **正确的参数**：
+   - `-s, --session`：目标 tmux session
+   - `-C, --cwd`：review 工作目录
+   - `-p, --profile`：codex profile
+   - `--goal/--focus/--context`：review 参数
+
+4. **更新 skills 文档**：
+   - 明确 drudge.review 是独立工具
+   - 调用系统 codex，不依赖 routecodex 或 servertool
+
+**测试结果**: 35/35 通过
+
+**版本**: v0.1.14
+
+---
+
+## [2026-03-21 19:10] - Review 流程修复：移除误导日志，增强可观测性
+
+### 完成内容
+
+**问题修复**:
+1. **移除误导性日志**：删除 `emitReviewToolLogs()` 函数
+   - 该函数在 review 执行前就记录 `completed_client_inject_only`
+   - 导致日志与实际执行状态不符
+   - 用户误以为 review 使用的是 "servertool review"
+
+2. **增强日志可观测性**：
+   - 添加 `[review] Starting review for session=...` 开始日志
+   - 添加 codex exit status、error、stderr 日志
+   - 添加 inject result 日志
+
+3. **移除 cwd-based tmux 解析**：
+   - 删除 `resolveTmuxTargetByWorkdir` 调用
+   - 确保只注入到 drudge 启动的 session（project name）
+   - 避免注入到非 drudge session 导致命令执行问题
+
+4. **增强 codex exec 环境**：
+   - 添加 15 分钟 timeout
+   - 设置 stdio 为 pipe
+   - 显式设置 HOME 和 CODEX_HOME 环境变量
+
+5. **清理配置**：
+   - 移除 ~/.drudge/config.json 中的测试路径（/private/tmp）
+
+6. **更新 Skill 文档**：
+   - skills/drudge/SKILL.md 增加 drudge.review 说明
+   - 明确 review 不是 servertool review
+   - 说明 codex exec 会读取 ~/.codex/USER.md 和 skills
+
+**测试结果**: 35/35 通过
+
+**版本**: v0.1.6
+
+---
+
 ## [2026-03-21 00:30] - CLI 模块化拆分（< 500 行）
 
 ### 完成内容
