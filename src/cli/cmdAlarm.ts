@@ -389,6 +389,30 @@ export async function cmdAlarm(args: string[], _cliOptions?: AlarmOptions): Prom
     case 'adopt':
       await cmdAlarmAdopt(parsed);
       break;
+
+    case 'clear': {
+      const project = parsed.project;
+      const alarms = listAlarms();
+      const toRemove = project
+        ? alarms.filter(a => a.project === project)
+        : alarms;
+      let removed = 0;
+      for (const alarm of toRemove) {
+        removeAlarm(alarm.id);
+        removed++;
+      }
+      if (parsed.json) {
+        console.log(JSON.stringify({ ok: true, removed }, null, 2));
+        return;
+      }
+      if (project) {
+        console.log(`Cleared ${removed} alarm(s) for project: ${project}`);
+      } else {
+        console.log(`Cleared ${removed} alarm(s)`);
+      }
+      return;
+    }
+
     default:
       printAlarmHelp();
   }
