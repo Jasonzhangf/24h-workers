@@ -4,6 +4,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { injectTmuxText } from '../tmux/injector.js';
 import { isTmuxSessionAlive } from '../tmux/session-probe.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
@@ -86,19 +89,52 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   // simulate review tool execution logs
   emitReviewToolLogs();
 
-  // run codex -p with review prompt
-  const result = spawnSync('codex', ['-p', prompt], {
-    cwd,
-    encoding: 'utf8'
-  });
+  const codexBin =
+    process.env.DRUDGE_REVIEW_CODEX_BIN ||
+    process.env.ROUTECODEX_STOPMESSAGE_AI_FOLLOWUP_CODEX_BIN ||
+    'codex';
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'drudge-review-'));
+  const outputFilePath = path.join(tmpDir, 'last-message.txt');
+
+  // run codex exec with review prompt (routecodex-compatible)
+  const result = spawnSync(
+    codexBin,
+    ['exec', '--color', 'never', '--skip-git-repo-check', '--output-last-message', outputFilePath, prompt],
+    {
+      cwd,
+      encoding: 'utf8'
+    }
+  );
 
   if (result.status !== 0) {
-    const reason = result.stderr || result.stdout || 'codex -p failed';
+    const reason = result.stderr || result.stdout || 'codex exec failed';
     printError(reason.trim());
     return;
   }
 
-  const reviewText = (result.stdout || '').trim() || '[Review] codex returned empty output.';
+  let reviewText = '';
+  if (fs.existsSync(outputFilePath)) {
+    try {
+      reviewText = fs.readFileSync(outputFilePath, 'utf8').trim();
+    } catch {
+      reviewText = '';
+    }
+  }
+
+  if (!reviewText) {
+    reviewText = (result.stdout || '').trim();
+  }
+
+  if (!reviewText) {
+    reviewText = '[Review] codex returned empty output.';
+  }
+
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {
+    // ignore cleanup errors
+  }
   const timeTag = buildTimeTagLine();
   const injectText = `${timeTag}\n\n[Review]\n${reviewText}`;
 
