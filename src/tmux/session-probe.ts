@@ -5,6 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 
 let tmuxAvailableCache: boolean | null = null;
 
@@ -66,6 +67,72 @@ export function resolveTmuxInjectionTarget(targetRaw: string): { sessionName: st
     sessionName,
     target
   };
+}
+
+/**
+ * 根据工作目录解析 tmux 目标 pane
+ * 返回 session:window.pane
+ */
+export function resolveTmuxTargetByWorkdir(workdir: string): string | undefined {
+  const candidate = String(workdir || '').trim();
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (!isTmuxAvailable()) {
+    return undefined;
+  }
+
+  let normalized = candidate;
+  try {
+    normalized = fs.realpathSync(candidate);
+  } catch {
+    // fallback to raw path
+  }
+
+  try {
+    const result = spawnSync('tmux', ['list-panes', '-a', '-F', '#S:#I.#P\t#{pane_current_path}'], {
+      encoding: 'utf8',
+      timeout: 1000
+    });
+    if (result.status !== 0) {
+      return undefined;
+    }
+    const lines = String(result.stdout || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const matches: string[] = [];
+    for (const line of lines) {
+      const [target, panePathRaw] = line.split('\t');
+      if (!target || !panePathRaw) {
+        continue;
+      }
+      let panePath = panePathRaw.trim();
+      let paneReal = panePath;
+      try {
+        paneReal = fs.realpathSync(panePath);
+      } catch {
+        // ignore
+      }
+      if (panePath === candidate || paneReal === normalized) {
+        matches.push(target.trim());
+      }
+    }
+    if (matches.length === 0) {
+      return undefined;
+    }
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    // 多个匹配时，优先选当前活跃 pane
+    const sessionName = normalizeTmuxSessionTarget(matches[0]);
+    const active = resolveTmuxActiveTarget(sessionName);
+    if (active && matches.includes(active)) {
+      return active;
+    }
+    return matches[0];
+  } catch {
+    return undefined;
+  }
 }
 
 /**
