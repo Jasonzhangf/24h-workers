@@ -163,7 +163,13 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
       if (!isTmuxSessionAlive(session.sessionId)) {
         const nextNotFound = (session.notFoundCount ?? 0) + 1;
         if (nextNotFound >= maxNotFound) {
-          deleteSession(session.sessionId, { stateDir });
+          // 不再删除 session 文件，只 disable 并记录日志
+          console.error(`[Drudge] Session "${session.sessionId}" not found ${nextNotFound} times, disabling (not deleting)`);
+          updateSession(session.sessionId, {
+            enabled: false,
+            lastError: 'session_not_found',
+            notFoundCount: nextNotFound
+          }, { stateDir });
           continue;
         }
         updateSession(session.sessionId, {
@@ -199,7 +205,12 @@ async function runTick(config: HeartbeatConfig): Promise<void> {
         if (isNotFound) {
           const nextNotFound = (session.notFoundCount ?? 0) + 1;
           if (nextNotFound >= maxNotFound) {
-            deleteSession(session.sessionId, { stateDir });
+            console.error(`[Drudge] Session "${session.sessionId}" not found ${nextNotFound} times after trigger, disabling (not deleting)`);
+            updateSession(session.sessionId, {
+              enabled: false,
+              lastError: result.reason,
+              notFoundCount: nextNotFound
+            }, { stateDir });
             continue;
           }
           updateSession(session.sessionId, {
