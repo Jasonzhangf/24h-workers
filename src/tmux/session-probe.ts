@@ -54,7 +54,12 @@ export function resolveTmuxInjectionTarget(targetRaw: string): { sessionName: st
   }
   const separatorIndex = target.indexOf(':');
   if (separatorIndex < 0) {
-    return { sessionName: target, target };
+    const sessionName = target;
+    const activeTarget = resolveTmuxActiveTarget(sessionName);
+    return {
+      sessionName,
+      target: activeTarget || sessionName
+    };
   }
   const sessionName = target.slice(0, separatorIndex).trim();
   return {
