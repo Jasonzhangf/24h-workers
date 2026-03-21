@@ -254,6 +254,29 @@ async function disableSession(
  * 启动 daemon
  * 唯一真源：所有 daemon 启动
  */
+
+/**
+ * 清理不存在的 tmux session 对应的 session 文件
+ * 只在启动/退出时调用
+ */
+function cleanupDeadSessions(stateDir: string): void {
+  const sessions = listEnabledSessions({ stateDir });
+  let cleaned = 0;
+  
+  for (const session of sessions) {
+    if (!isTmuxSessionAlive(session.sessionId)) {
+      // tmux session 确实不存在，清理 session 文件
+      deleteSession(session.sessionId, { stateDir });
+      console.log(`[Drudge] Cleaned up dead session: ${session.sessionId}`);
+      cleaned++;
+    }
+  }
+  
+  if (cleaned > 0) {
+    console.log(`[Drudge] Cleaned up ${cleaned} dead session(s)`);
+  }
+}
+
 export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   if (daemonState.started) {
     console.log('[Drudge] Daemon already running');
@@ -264,8 +287,12 @@ export async function startDaemon(config: HeartbeatConfig): Promise<void> {
   daemonState.config = config;
 
   const tickMs = config.tickMs || 15 * 60 * 1000;
+  const stateDir = config.stateDir || '~/.drudge';
   
   console.log(`[Drudge] Starting daemon with tick=${tickMs}ms`);
+  
+  // 启动时清理不存在的 tmux session
+  cleanupDeadSessions(stateDir);
   
   // Write PID file
   writePidFile();
@@ -298,6 +325,11 @@ export function stopDaemon(): void {
     daemonState.timer = undefined;
   }
   
+  // 退出时清理不存在的 tmux session
+  if (daemonState.config?.stateDir) {
+    cleanupDeadSessions(daemonState.config.stateDir);
+  }
+
   daemonState.started = false;
   daemonState.config = undefined;
   
