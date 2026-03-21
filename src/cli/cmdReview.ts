@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { injectTmuxText } from '../tmux/injector.js';
-import { isTmuxSessionAlive, resolveTmuxActiveTarget } from '../tmux/session-probe.js';
+import { isTmuxSessionAlive, normalizeTmuxSessionTarget, resolveTmuxActiveTarget, resolveTmuxTargetByWorkdir } from '../tmux/session-probe.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
 import { getProjectName, getDefaultStateDir } from '../core/config.js';
 import { printError, printJson, logToFile, type CliOptions } from './cli-utils.js';
@@ -248,15 +248,16 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   const parsed = parseReviewArgs(args);
   const reviewCwd = options.cwd || process.cwd();
   const projectName = getProjectName(reviewCwd);
-  const sessionId = options.session;
+  const sessionTarget = options.session || resolveTmuxTargetByWorkdir(reviewCwd);
+  const sessionId = sessionTarget ? normalizeTmuxSessionTarget(sessionTarget) : '';
 
-  if (!sessionId) {
-    printError('Session ID required. Use -s <session>. Hint: drudge session resolve -C <dir> --json');
+  if (!sessionTarget || !sessionId) {
+    printError(`No tmux session found for path: ${reviewCwd}. Hint: drudge session resolve -C <dir> --json`);
     return;
   }
 
   if (!isTmuxSessionAlive(sessionId)) {
-    printError(`Tmux session not found: ${sessionId}`);
+    printError(`Tmux session not alive: ${sessionId}`);
     return;
   }
 
@@ -357,7 +358,7 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
   // 注入到 tmux
-  const target = resolveTmuxActiveTarget(sessionId) || sessionId;
+  const target = resolveTmuxActiveTarget(sessionId) || sessionTarget;
   const timeTag = buildTimeTagLine();
   const injectText = `${timeTag}\n\n[Review]\n${reviewText}`;
 

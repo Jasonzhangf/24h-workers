@@ -119,6 +119,58 @@ drudge alarm adopt -p <project> -s <session> --force
 
 ---
 
+### 3) Review（drudge.review）
+
+独立 review 工具，**默认使用系统 codex**，也可配置为 Claude Code 或自定义工具。输出通过 tmux 注入到会话中。
+
+#### 推荐流程
+```bash
+# 1) 先解析当前路径对应的 tmux session
+drudge session resolve -C <project-dir> --json
+
+# 2) 执行 review（不指定 -s 时会按路径自动解析）
+drudge review -C <project-dir> --goal "检查交付是否完整" --focus "tests/build/evidence"
+
+# 3) 或指定 session
+drudge review -s <session> -C <project-dir> --goal "检查交付是否完整"
+```
+
+#### 配置 review 工具
+
+配置文件：`~/.drudge/review-config.json`
+
+```json
+{
+  "default": "codex",
+  "tools": {
+    "codex": {
+      "name": "codex",
+      "bin": "codex",
+      "argsTemplate": ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--output-last-message", "{output}", "{prompt}"]
+    },
+    "claude": {
+      "name": "claude",
+      "bin": "claude",
+      "argsTemplate": ["--dangerously-skip-permissions", "--print", "{prompt}"],
+      "stdoutMode": "last-message"
+    }
+  }
+}
+```
+
+**模板变量**：`{cwd}` / `{output}` / `{prompt}` / `{profile}`
+
+#### 环境变量
+- `DRUDGE_REVIEW_TOOL`：指定默认 review 工具
+- `DRUDGE_REVIEW_CODEX_BIN`：指定 codex 路径
+- `CODEX_HOME`：指定 codex 配置目录
+
+> **依赖提醒**：review 工具需安装在系统 PATH 中（codex/claude）。
+
+---
+
+---
+
 ### 3) Trigger（直接注入）
 直接向指定 tmux session 注入一条提示词。
 
@@ -255,6 +307,48 @@ echo "[Alarm] Do the task" > <project>/.drudge/CLOCK.md
 ```bash
 drudge trigger -s <session> -m "[Alarm] Check now"
 ```
+
+#### Review (drudge.review)
+```bash
+# Resolve tmux session by path (recommended)
+drudge session resolve -C <project-dir> --json
+
+# Run review (session auto-resolve by path)
+drudge review -C <project-dir> --goal "check delivery" --focus "tests/build/evidence"
+
+# Or force specific session
+drudge review -s <session> -C <project-dir>
+```
+
+**Review tool config**: `~/.drudge/review-config.json`
+
+```json
+{
+  "default": "codex",
+  "tools": {
+    "codex": {
+      "name": "codex",
+      "bin": "codex",
+      "argsTemplate": ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--output-last-message", "{output}", "{prompt}"]
+    },
+    "claude": {
+      "name": "claude",
+      "bin": "claude",
+      "argsTemplate": ["--dangerously-skip-permissions", "--print", "{prompt}"],
+      "stdoutMode": "last-message"
+    }
+  }
+}
+```
+
+Template vars: `{cwd}` / `{output}` / `{prompt}` / `{profile}`
+
+Env vars:
+- `DRUDGE_REVIEW_TOOL`
+- `DRUDGE_REVIEW_CODEX_BIN`
+- `CODEX_HOME`
+
+Note: the selected review tool must be installed and available in PATH (codex/claude).
 
 ### Release package usage
 If you downloaded a release tarball from GitHub:

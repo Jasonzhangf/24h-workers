@@ -57,12 +57,12 @@
   - `claude`: `claude --dangerously-skip-permissions --print {prompt}`
 - **验证**: build + tests 35/35 通过
 
-### 2026-03-21: 显式 session resolve（路径反查）
-- **需求**: 不能让模型自己猜 session，必须能通过路径显式确认 session 参数
+### 2026-03-21: session resolve（路径反查）+ review 自动解析
+- **需求**: 不能盲猜 session；需提供路径反查并支持 review 自动解析
 - **实现**:
   1. 新增命令 `drudge session resolve -C <dir>`
   2. 支持 `--json` 输出，用于自动化确认 sessionId
-  3. `drudge review` 强制要求 `-s <session>`，不允许隐式选择
+  3. `drudge review` 在未指定 `-s` 时按路径自动解析 session（失败则报错）
 - **验证**: build + tests 35/35 通过
 
 ### 2026-03-21: alarm store 测试权限错误 + 静默失败修复

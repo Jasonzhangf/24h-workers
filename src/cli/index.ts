@@ -355,7 +355,7 @@ Trigger command:
   trigger -s <session> -m <message> [--no-submit]
 
 Review command:
-  review -s <session> [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>] [--tool <name>]
+  review [--session <id>] [--goal <text>] [--focus <text>] [--context <text>] [-C <dir>] [-p <profile>] [--tool <name>]
 
 Options:
   -s, --session <id>    Session ID

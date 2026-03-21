@@ -15,7 +15,7 @@ description: Drudge skill set for scheduling (drudge.clock) and tmux injection (
 
 ---
 
-## 如何确定/创建当前项目的 tmux session（必须显式确认）
+## 如何确定/创建当前项目的 tmux session（建议显式确认）
 
 **目标**：模型需要知道“当前项目对应哪个 tmux session”，如果不存在则创建或接管。
 
@@ -32,7 +32,7 @@ drudge alarm check -p <project> --json
 - `ready: true` → 说明 drudge session 已存在，可直接注入/定时
 - `ready: false` → 说明未注册或未有 drudge session
 
-### 3) 通过路径定位 tmux session（必须显式确认）
+### 3) 通过路径定位 tmux session（建议显式确认）
 ```bash
 tmux list-panes -a -F '#S:#I.#P\t#{pane_current_path}'
 ```
@@ -61,8 +61,8 @@ drudge alarm adopt -p <project> -s <session> --force
 ```
 
 > **结论**：
-> - 必须先确认 session（推荐 `drudge session resolve -C`）
-> - 不允许隐式猜测 session
+> - 推荐先确认 session（`drudge session resolve -C`）
+> - review 可从路径自动解析 session，但解析失败会报错
 > - 没有 session 就用 `drudge codex/claude` 创建
 
 ---
@@ -201,16 +201,19 @@ drudge trigger -s <session> -m "[Alarm] 立即检查任务状态"
 ```
 
 ```bash
-# 先显式解析 session
+# 推荐先显式解析 session（可用于确认参数）
 drudge session resolve -C <project-dir> --json
 
-# 再执行 review（必须带 -s）
-drudge review -s <session> -C <project-dir> --goal "检查交付是否完整" --focus "tests/build/evidence"
-drudge review -s <session> --tool claude  # 使用 claude 而非 codex
+# review 可省略 -s（会从路径自动解析 session）
+drudge review -C <project-dir> --goal "检查交付是否完整" --focus "tests/build/evidence"
+drudge review --tool claude  # 使用 claude 而非 codex
+
+# 若需强制指定 session
+drudge review -s <session> -C <project-dir> --goal "检查交付是否完整"
 ```
 
 **参数**：
-- `-s, --session <id>`：目标 tmux session（默认使用当前目录 projectName）
+- `-s, --session <id>`：目标 tmux session（可选；不提供时按路径自动解析）
 - `-C, --cwd <dir>`：review 工作目录（由 drudge 设置进程 cwd）
 - `--tool <name>`：指定 review 工具（codex/claude/自定义）
 - `-p, --profile <name>`：codex profile（可选；仅在目标 codex 支持 `--profile` 时传递）
