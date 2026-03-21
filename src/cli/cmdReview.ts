@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { injectTmuxText } from '../tmux/injector.js';
-import { isTmuxSessionAlive } from '../tmux/session-probe.js';
+import { isTmuxSessionAlive, resolveTmuxTargetByWorkdir } from '../tmux/session-probe.js';
 import { buildTimeTagLine } from '../clock/time-tag.js';
 import { getProjectName } from '../core/config.js';
 import { printError, printJson, logToFile, type CliOptions } from './cli-utils.js';
@@ -71,7 +71,8 @@ function emitReviewToolLogs(): void {
 export async function cmdReview(args: string[], options: CliOptions): Promise<void> {
   const cwd = process.cwd();
   const projectName = getProjectName(cwd);
-  const sessionId = options.session || projectName;
+  const cwdTarget = resolveTmuxTargetByWorkdir(cwd);
+  const sessionId = options.session || cwdTarget || projectName;
 
   if (!sessionId) {
     printError('Session ID required. Use -s <session>');
