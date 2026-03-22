@@ -206,6 +206,41 @@ function extractStdoutText(stdout: string, mode: string): string {
   return stdout.trim();
 }
 
+function stripAnsi(input: string): string {
+  return input.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+/**
+ * 压缩工具错误文本，避免把 banner/提示词原文整段注入到 tmux 输入框造成污染。
+ */
+function sanitizeToolError(raw: string, prompt: string): string {
+  const cleaned = stripAnsi(String(raw || ''));
+  if (!cleaned.trim()) return '';
+
+  const promptHead = prompt.slice(0, 120).trim();
+  const lines = cleaned
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line !== '--------')
+    .filter((line) => !line.startsWith('OpenAI Codex v'))
+    .filter((line) => !line.startsWith('workdir:'))
+    .filter((line) => !line.startsWith('model:'))
+    .filter((line) => !line.startsWith('provider:'))
+    .filter((line) => !line.startsWith('approval:'))
+    .filter((line) => !line.startsWith('sandbox:'))
+    .filter((line) => !line.startsWith('reasoning effort:'))
+    .filter((line) => !line.startsWith('reasoning summaries:'))
+    .filter((line) => !line.startsWith('session id:'))
+    .filter((line) => line !== 'user')
+    .filter((line) => line !== 'mcp startup: no servers')
+    .filter((line) => !promptHead || line !== promptHead)
+    .filter((line) => !line.startsWith('请先做严格代码 review（证据驱动）'));
+
+  // 只保留前 6 行，避免错误信息过长污染输入框
+  return lines.slice(0, 6).join('\n').trim();
+}
+
 function extractCodexAgentMessageFromJson(stdout: string): string {
   const lines = stdout
     .split('\n')
@@ -299,9 +334,10 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
   });
 
   const failed = result.status !== 0 || !!result.error;
-  let errorText = failed
+  const rawErrorText = failed
     ? (result.stderr || result.stdout || `${bin} failed`).trim()
     : (result.stderr || '').trim();
+  let errorText = sanitizeToolError(rawErrorText, prompt) || rawErrorText;
   logToFile(`[review] exit: status=${result.status}, error=${result.error ? String(result.error) : 'none'}, stderr=${errorText.slice(0, 300)}`);
 
   // 提取 review 文本
@@ -351,7 +387,7 @@ export async function cmdReview(args: string[], options: CliOptions): Promise<vo
     logToFile('[review] tool returned empty, using fallback');
     reviewText = failed
       ? `[Review][Error] ${bin} failed: ${errorText || 'unknown error'}`
-      : `[Review][Error] ${bin} completed without assistant output. stderr=${(errorText || 'n/a').slice(0, 240)}`;
+      : `[Review][Error] ${bin} completed without assistant output.`;
   }
   logToFile(`[review] review text length=${reviewText.length}`);
 
